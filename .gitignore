@@ -1,0 +1,38 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Xcode/macOS
+.DS_Store
+*.xcworkspace
+xcuserdata/
+DerivedData/
+
+# Local runtime data
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+*.log
+*.sock
+artifacts/
+dist/
+
+# Local environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+# Project-local planning file (do not publish)
+plan.md
+
+# Local screenshot tooling / private demo assets
+.private-demo/
+scripts/capture-demo-screenshots.sh
+scripts/seed-demo-data.py
+
+# Local root screenshots (do not track)
+orbit.png
+orbit_idle.png
