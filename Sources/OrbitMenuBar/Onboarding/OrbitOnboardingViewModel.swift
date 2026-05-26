@@ -3,6 +3,32 @@ import AppKit
 import UserNotifications
 import OrbitCore
 
+private func shortOnboardingErrorMessage(_ error: Error) -> String {
+    var message = error.localizedDescription
+    if let firstLine = message.split(separator: "\n").first {
+        message = String(firstLine)
+    }
+
+    if message.count > 180 {
+        message = String(message.prefix(180)) + "…"
+    }
+
+    return message
+}
+
+private struct NetworkPermissionRetryFailed: LocalizedError {
+    let underlying: Error?
+
+    var errorDescription: String? {
+        var message = "Connection failed after retrying. If macOS showed a permission prompt, enable Orbit in System Settings → Privacy & Security → Local Network."
+        if let underlying {
+            let detail = shortOnboardingErrorMessage(underlying)
+            if !detail.isEmpty { message += " Last error: \(detail)" }
+        }
+        return message
+    }
+}
+
 @MainActor
 final class OrbitOnboardingViewModel: ObservableObject {
     enum Step: Int, CaseIterable {
@@ -102,6 +128,7 @@ final class OrbitOnboardingViewModel: ObservableObject {
 
     @Published var formError: String?
     @Published var testErrorMessage: String?
+    @Published var testHelpMessage: String?
     @Published var canContinueAfterTest: Bool = false
     @Published var isTestingConnection: Bool = false
 
@@ -114,6 +141,7 @@ final class OrbitOnboardingViewModel: ObservableObject {
     private var testedProfile: ClusterProfile?
     private var didPersistTestedProfile: Bool = false
     private var highestReachedStepRaw: Int
+    private var hasShownNetworkPermissionGuidance = false
 
     private static let completedKey = "orbit.onboarding.completed"
 
@@ -396,9 +424,20 @@ final class OrbitOnboardingViewModel: ObservableObject {
 
         do {
             activeStep = .ssh
-            setStep(.ssh, .running)
-            try await connection.establishMaster()
+            let showPermissionGuidance = !hasShownNetworkPermissionGuidance
+            hasShownNetworkPermissionGuidance = true
+
+            if showPermissionGuidance {
+                setStep(.ssh, .running, label: "Waiting for macOS network permission…")
+                testHelpMessage = "If macOS asks for network access, click Allow. Orbit will retry automatically."
+            } else {
+                setStep(.ssh, .running, label: "Opening SSH connection")
+                testHelpMessage = nil
+            }
+
+            try await establishMasterWithPermissionRetry(connection, allowPermissionRetry: showPermissionGuidance)
             setStep(.ssh, .done, label: "SSH connection established")
+            testHelpMessage = nil
 
             activeStep = .auth
             setStep(.auth, .running)
@@ -430,13 +469,47 @@ final class OrbitOnboardingViewModel: ObservableObject {
             canContinueAfterTest = true
             testErrorMessage = nil
         } catch {
+            if Task.isCancelled {
+                await connection.teardown()
+                return
+            }
             setStep(activeStep, .fail)
             canContinueAfterTest = false
+            testHelpMessage = nil
             testErrorMessage = Self.userFacingError(error)
         }
 
         await connection.teardown()
-        isTestingConnection = false
+        if !Task.isCancelled {
+            isTestingConnection = false
+        }
+    }
+
+    private func establishMasterWithPermissionRetry(_ connection: SSHConnection, allowPermissionRetry: Bool) async throws {
+        let deadline = Date().addingTimeInterval(25)
+        var lastError: Error?
+        var didRetry = false
+
+        repeat {
+            do {
+                try await connection.establishMaster()
+                return
+            } catch {
+                if Task.isCancelled { throw error }
+                lastError = error
+
+                guard allowPermissionRetry, Self.shouldRetryForNetworkPermission(error), Date() < deadline else {
+                    throw didRetry ? NetworkPermissionRetryFailed(underlying: lastError) : error
+                }
+
+                didRetry = true
+                setStep(.ssh, .running, label: "Waiting for macOS permission… retrying")
+                testHelpMessage = "Click Allow in the macOS prompt. If you already did, Orbit will retry in a moment."
+                try await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        } while Date() < deadline
+
+        throw NetworkPermissionRetryFailed(underlying: lastError)
     }
 
     private func cancelTesting() {
@@ -452,6 +525,7 @@ final class OrbitOnboardingViewModel: ObservableObject {
     private func resetTestState() {
         testStatuses = Self.defaultTestStatuses()
         testErrorMessage = nil
+        testHelpMessage = nil
         canContinueAfterTest = false
         testedProfile = nil
         didPersistTestedProfile = false
@@ -543,20 +617,44 @@ final class OrbitOnboardingViewModel: ObservableObject {
         })
     }
 
+    private static func shouldRetryForNetworkPermission(_ error: Error) -> Bool {
+        if case ProcessExecutionError.timedOut = error { return true }
+
+        if case SSHConnectionError.commandFailed(_, let code, let stderr) = error, code == 255 {
+            let lower = stderr.lowercased()
+            let definiteInputErrors = [
+                "could not resolve hostname",
+                "no such identity",
+                "identity file",
+                "bad permissions",
+                "host key verification failed",
+                "permission denied"
+            ]
+            if definiteInputErrors.contains(where: { lower.contains($0) }) {
+                return false
+            }
+            return true
+        }
+
+        let message = error.localizedDescription.lowercased()
+        let retryHints = [
+            "operation not permitted",
+            "connection timed out",
+            "socket is not connected"
+        ]
+
+        return retryHints.contains { message.contains($0) }
+    }
+
     private static func userFacingError(_ error: Error) -> String {
+        if let permissionError = error as? NetworkPermissionRetryFailed {
+            return permissionError.localizedDescription
+        }
+
         if let orbitError = error as? OrbitServiceError {
             return orbitError.localizedDescription
         }
 
-        var message = error.localizedDescription
-        if let firstLine = message.split(separator: "\n").first {
-            message = String(firstLine)
-        }
-
-        if message.count > 180 {
-            message = String(message.prefix(180)) + "…"
-        }
-
-        return message
+        return shortOnboardingErrorMessage(error)
     }
 }

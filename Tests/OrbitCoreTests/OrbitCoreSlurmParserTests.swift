@@ -175,7 +175,7 @@ struct OrbitCoreSlurmParserTests {
           "jobs": [
             {
               "job_id": 226873,
-              "name": "ag4_nenepo_job",
+              "name": "array_sample_job",
               "partition": "gpu5x,gpu6x",
               "job_state": ["PENDING"],
               "node_count": 1,
@@ -188,7 +188,7 @@ struct OrbitCoreSlurmParserTests {
             },
             {
               "job_id": 226874,
-              "name": "ag4_nenepo_job",
+              "name": "array_sample_job",
               "partition": "gpu5x",
               "job_state": ["RUNNING"],
               "node_count": 1,
@@ -200,7 +200,7 @@ struct OrbitCoreSlurmParserTests {
             },
             {
               "job_id": 226875,
-              "name": "ag4_nenepo_job",
+              "name": "array_sample_job",
               "partition": "gpu5x",
               "job_state": ["RUNNING"],
               "node_count": 1,
@@ -238,7 +238,7 @@ struct OrbitCoreSlurmParserTests {
           "jobs": [
             {
               "job_id": 226873,
-              "name": "ag4_nenepo_job",
+              "name": "array_sample_job",
               "partition": "gpu5x,gpu6x",
               "job_state": ["PENDING"],
               "node_count": 1,
@@ -251,7 +251,7 @@ struct OrbitCoreSlurmParserTests {
             },
             {
               "job_id": 226874,
-              "name": "ag4_nenepo_job",
+              "name": "array_sample_job",
               "partition": "gpu5x",
               "job_state": ["RUNNING"],
               "node_count": 1,
@@ -263,7 +263,7 @@ struct OrbitCoreSlurmParserTests {
             },
             {
               "job_id": 226875,
-              "name": "ag4_nenepo_job",
+              "name": "array_sample_job",
               "partition": "gpu5x",
               "job_state": ["RUNNING"],
               "node_count": 1,
@@ -292,7 +292,7 @@ struct OrbitCoreSlurmParserTests {
           "jobs": [
             {
               "job_id": 748291,
-              "name": "sim_ag4_wigner",
+              "name": "sim_sample_job",
               "partition": "gpu5x",
               "job_state": ["RUNNING"],
               "node_count": 1,

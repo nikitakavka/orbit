@@ -37,7 +37,7 @@ struct OrbitCoreEnvironmentAndModelTests {
         let parent = JobSnapshot(
             id: "226873",
             profileId: profile.id,
-            name: "ag4_nenepo_job",
+            name: "array_sample_job",
             state: .pending,
             partition: "gpu5x",
             nodes: 1,
@@ -58,7 +58,7 @@ struct OrbitCoreEnvironmentAndModelTests {
         let child1 = JobSnapshot(
             id: "226874",
             profileId: profile.id,
-            name: "ag4_nenepo_job",
+            name: "array_sample_job",
             state: .running,
             partition: "gpu5x",
             nodes: 1,
@@ -79,7 +79,7 @@ struct OrbitCoreEnvironmentAndModelTests {
         let child2 = JobSnapshot(
             id: "226875",
             profileId: profile.id,
-            name: "ag4_nenepo_job",
+            name: "array_sample_job",
             state: .running,
             partition: "gpu5x",
             nodes: 1,

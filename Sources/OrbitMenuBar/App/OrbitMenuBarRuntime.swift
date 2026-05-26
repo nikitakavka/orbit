@@ -18,7 +18,12 @@ struct OrbitMenuBarRuntime {
             maxDatabaseSizeMB: OrbitEnvironment.int(env, key: "ORBIT_MAX_DB_SIZE_MB") ?? 200
         )
 
-        let notificationsEnabled = env["ORBIT_ENABLE_NOTIFICATIONS"] != "0"
+        // UserNotifications requires a real .app bundle. `swift run orbit-menubar`
+        // launches the executable from .build/, where UNUserNotificationCenter.current()
+        // crashes with "bundleProxyForCurrentProcess is nil". Keep notifications enabled
+        // for packaged app runs, but force the noop engine for unbundled debug runs.
+        let isAppBundle = Bundle.main.bundleURL.pathExtension.lowercased() == "app"
+        let notificationsEnabled = env["ORBIT_ENABLE_NOTIFICATIONS"] != "0" && isAppBundle
         let notificationEngine: NotificationEngine = notificationsEnabled
             ? UserNotificationEngine(database: database)
             : NoopNotificationEngine()

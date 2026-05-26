@@ -100,7 +100,13 @@ extension OrbitPopoverView {
     }
 
     func formatGBValue(_ memoryMB: Int) -> String {
-        let gb = Double(max(0, memoryMB)) / 1024.0
+        let safeMB = max(0, memoryMB)
+        if safeMB == 0 { return "0" }
+
+        let gb = Double(safeMB) / 1024.0
+        if gb >= 1024 {
+            return String(format: gb >= 10_240 ? "%.0fT" : "%.1fT", gb / 1024.0)
+        }
         return gb >= 10 ? String(format: "%.0f", gb) : String(format: "%.1f", gb)
     }
 
@@ -110,19 +116,12 @@ extension OrbitPopoverView {
     }
 
     func primaryPartitionLabel(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> String? {
-        let partitions = row.node.partitions.filter { !$0.isEmpty }
+        let partitions = row.node.partitions
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         guard let first = partitions.first else { return nil }
         let short = first.count > 12 ? String(first.prefix(11)) + "…" : first
         return partitions.count > 1 ? "\(short)+\(partitions.count - 1)" : short
-    }
-
-    func nodeStateTint(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> Color {
-        switch row.severity {
-        case .critical: return OrbitTheme.danger
-        case .warning: return OrbitTheme.warning
-        case .healthy: return OrbitTheme.success
-        case .unknown: return OrbitTheme.textTimestamp
-        }
     }
 
     func topLongestRunningTasks(_ group: OrbitMenuBarViewModel.ArrayRunningGroup, limit: Int) -> [JobSnapshot] {
@@ -266,12 +265,6 @@ extension OrbitPopoverView {
         if progress >= 0.9 { return OrbitTheme.accent.opacity(0.95) }
         if progress >= 0.75 { return OrbitTheme.accent.opacity(0.90) }
         return OrbitTheme.accent.opacity(0.78)
-    }
-
-    func loadTint(_ percent: Double) -> Color {
-        if percent > 85 { return OrbitTheme.danger }
-        if percent >= 60 { return OrbitTheme.warning }
-        return OrbitTheme.success
     }
 
     func runningTimeLabel(_ job: JobSnapshot) -> String {

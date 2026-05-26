@@ -19,7 +19,8 @@ struct OrbitCLI {
                 maxDatabaseSizeMB: OrbitEnvironment.int(env, key: "ORBIT_MAX_DB_SIZE_MB") ?? 200
             )
 
-            let notificationsEnabled = env["ORBIT_ENABLE_NOTIFICATIONS"] != "0"
+            let isAppBundle = Bundle.main.bundleURL.pathExtension.lowercased() == "app"
+            let notificationsEnabled = env["ORBIT_ENABLE_NOTIFICATIONS"] != "0" && isAppBundle
             let notificationEngine: NotificationEngine
             if notificationsEnabled {
                 _ = await UserNotificationEngine.requestAuthorization()

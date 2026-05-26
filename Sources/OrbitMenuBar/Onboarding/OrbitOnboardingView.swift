@@ -355,6 +355,22 @@ struct OrbitOnboardingView: View {
             }
             .padding(.bottom, 24)
 
+            if let help = viewModel.testHelpMessage, !help.isEmpty {
+                Text(help)
+                    .font(OrbitTheme.sans(11, weight: .light))
+                    .foregroundStyle(Palette.orange.opacity(0.85))
+                    .lineSpacing(2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(Palette.orange.opacity(0.06))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .stroke(Palette.orange.opacity(0.15), lineWidth: 1)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .padding(.bottom, 16)
+            }
+
             if let error = viewModel.testErrorMessage, !error.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Connection failed")
@@ -383,9 +399,15 @@ struct OrbitOnboardingView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .padding(.bottom, 4)
+            } else if viewModel.testErrorMessage != nil, !viewModel.isTestingConnection {
+                Button("Retry connection →") {
+                    viewModel.startConnectionTest()
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .padding(.bottom, 4)
             }
 
-            Button("← Back") {
+            Button(viewModel.isTestingConnection ? "Cancel and edit connection" : "Edit connection") {
                 viewModel.back()
             }
             .buttonStyle(GhostButtonStyle())

@@ -12,13 +12,14 @@ struct OrbitPopoverView: View {
     @State private var forceShowStats: Bool = false
     @State private var isRunningExpanded: Bool = false
     @State private var isPendingExpanded: Bool = false
+    @State private var selectedNodePartition: String?
 
     private let maxRunningRows = 3
     private let maxPendingRows = 3
 
     enum Layout {
         static let width: CGFloat = 380
-        static let maxHeight: CGFloat = 860
+        static let maxHeight: CGFloat = 800
         static let detailInset: CGFloat = 8
     }
 
@@ -155,6 +156,7 @@ struct OrbitPopoverView: View {
             forceShowStats = false
             isRunningExpanded = false
             isPendingExpanded = false
+            selectedNodePartition = nil
         }
         .preferredColorScheme(.dark)
     }
@@ -727,133 +729,188 @@ struct OrbitPopoverView: View {
 
     private var clusterLoadSection: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("CLUSTER LOAD (CPU)")
+            HStack(alignment: .firstTextBaseline) {
+                Text("CLUSTER LOAD")
                     .font(OrbitTheme.mono(12, weight: .semibold))
                     .foregroundStyle(OrbitTheme.textLabel)
                     .tracking(1.1)
 
-                Spacer()
+                Spacer(minLength: 8)
+
+                Button {
+                    selectedNodePartition = nil
+                    viewModel.toggleClusterLoadExpansion()
+                } label: {
+                    Text(viewModel.isClusterLoadExpanded ? "▾" : "▸")
+                        .font(OrbitTheme.mono(12, weight: .semibold))
+                        .foregroundStyle(OrbitTheme.accent.opacity(0.9))
+                        .frame(width: 18, height: 18, alignment: .trailing)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(viewModel.selectedStatus == nil)
             }
 
             ForEach(clusterLoadStatuses, id: \.profile.id) { status in
                 let isSelected = status.profile.id == viewModel.selectedStatus?.profile.id
 
-                Button {
-                    if isSelected {
-                        viewModel.toggleClusterLoadExpansion()
-                    } else {
-                        viewModel.selectedProfileID = status.profile.id
-                        if !viewModel.isClusterLoadExpanded {
-                            viewModel.toggleClusterLoadExpansion()
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        Text(status.profile.displayName)
-                            .font(OrbitTheme.mono(12, weight: isSelected ? .semibold : .regular))
-                            .foregroundStyle(isSelected ? OrbitTheme.textPrimary : OrbitTheme.textSecondary)
-                            .frame(width: 72, alignment: .leading)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .help(status.profile.displayName)
+                VStack(alignment: .leading, spacing: 10) {
+                    clusterLoadSummaryButton(for: status, isSelected: isSelected)
 
-                        GeometryReader { geo in
-                            let progress = max(0, min(1, (status.clusterLoad?.cpuLoadPercent ?? 0) / 100.0))
-                            let width = geo.size.width * progress
-
-                            ZStack(alignment: .leading) {
-                                Capsule()
-                                    .fill(Color.white.opacity(0.10))
-                                    .frame(height: 2)
-
-                                Capsule()
-                                    .fill(loadTint(status.clusterLoad?.cpuLoadPercent ?? 0))
-                                    .frame(width: width, height: 2)
-                            }
-                        }
-                        .frame(height: 2)
-
-                        HStack(spacing: 4) {
-                            if let load = status.clusterLoad {
-                                Text(String(format: "%.0f%%", load.cpuLoadPercent))
-                                    .font(OrbitTheme.mono(12, weight: .semibold))
-                                    .foregroundStyle(isSelected ? OrbitTheme.textPrimary : OrbitTheme.textSecondary)
-                            } else {
-                                Text("—")
-                                    .font(OrbitTheme.mono(12, weight: .semibold))
-                                    .foregroundStyle(OrbitTheme.textTimestamp)
-                            }
-
-                            Text(isSelected && viewModel.isClusterLoadExpanded ? "▾" : "▸")
-                                .font(OrbitTheme.mono(11, weight: .semibold))
-                                .foregroundStyle(OrbitTheme.accent.opacity(0.9))
-                        }
-                        .frame(width: 44, alignment: .trailing)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-
-            if viewModel.isClusterLoadExpanded {
-                VStack(alignment: .leading, spacing: 8) {
-                    Rectangle()
-                        .fill(OrbitTheme.divider)
-                        .frame(height: 1)
-
-                    HStack {
-                        Text("NODE DETAILS")
-                            .font(OrbitTheme.mono(10, weight: .semibold))
-                            .foregroundStyle(OrbitTheme.textLabel)
-                        Spacer()
-                        Button(viewModel.isLoadingNodeInventory ? "refreshing…" : "refresh") {
-                            viewModel.refreshNodeInventory()
-                        }
-                        .buttonStyle(.plain)
-                        .font(OrbitTheme.mono(10, weight: .semibold))
-                        .foregroundStyle(OrbitTheme.accent)
-                        .disabled(viewModel.isLoadingNodeInventory)
-                    }
-
-                    clusterCapacitySummary
-
-                    if let partitionText = selectedPartitionSummaryText {
-                        Text("Partitions: \(partitionText)")
-                            .font(OrbitTheme.mono(9))
-                            .foregroundStyle(OrbitTheme.textTimestamp)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                            .help(selectedPartitionSummaryTooltip ?? "")
-                    }
-
-                    if viewModel.isLoadingNodeInventory && viewModel.selectedNodeRows.isEmpty {
-                        Text("Loading node inventory…")
-                            .font(OrbitTheme.mono(10))
-                            .foregroundStyle(OrbitTheme.textTimestamp)
-                    } else if viewModel.selectedNodeRows.isEmpty {
-                        Text("No node details available yet")
-                            .font(OrbitTheme.mono(10))
-                            .foregroundStyle(OrbitTheme.textTimestamp)
-                    } else {
-                        VStack(alignment: .leading, spacing: 4) {
-                            nodeListHeader
-
-                            ScrollView(.vertical, showsIndicators: false) {
-                                LazyVStack(alignment: .leading, spacing: 3) {
-                                    ForEach(viewModel.selectedNodeRows) { row in
-                                        nodeDetailRow(row)
-                                    }
-                                }
-                            }
-                            .frame(maxHeight: 104)
-                            .clipped()
-                        }
+                    if isSelected && viewModel.isClusterLoadExpanded {
+                        nodeDetailsPanel(for: status)
                     }
                 }
             }
         }
         .padding(.vertical, 10)
+    }
+
+    private func clusterLoadSummaryButton(for status: ProfileStatus, isSelected: Bool) -> some View {
+        Button {
+            selectedNodePartition = nil
+            if isSelected {
+                viewModel.toggleClusterLoadExpansion()
+            } else {
+                viewModel.selectedProfileID = status.profile.id
+                if !viewModel.isClusterLoadExpanded {
+                    viewModel.toggleClusterLoadExpansion()
+                }
+            }
+        } label: {
+            if isSelected {
+                expandedClusterLoadSummary(for: status)
+            } else {
+                compactClusterLoadSummary(for: status, isSelected: isSelected)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func compactClusterLoadSummary(for status: ProfileStatus, isSelected: Bool) -> some View {
+        HStack(spacing: 10) {
+            Text(status.profile.displayName)
+                .font(OrbitTheme.mono(12, weight: isSelected ? .semibold : .regular))
+                .foregroundStyle(isSelected ? OrbitTheme.textPrimary : OrbitTheme.textSecondary)
+                .frame(width: 72, alignment: .leading)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(status.profile.displayName)
+
+            thinLoadBar(percent: status.clusterLoad?.cpuLoadPercent, height: 2)
+
+            Text(clusterPercentText(status.clusterLoad))
+                .font(OrbitTheme.mono(12, weight: .semibold))
+                .foregroundStyle(status.clusterLoad == nil ? OrbitTheme.textTimestamp : (isSelected ? OrbitTheme.textPrimary : OrbitTheme.textSecondary))
+                .monospacedDigit()
+                .frame(width: 32, alignment: .trailing)
+
+            Text(isSelected && viewModel.isClusterLoadExpanded ? "▾" : "▸")
+                .font(OrbitTheme.mono(11, weight: .semibold))
+                .foregroundStyle(OrbitTheme.accent.opacity(0.9))
+                .frame(width: 10, alignment: .trailing)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func expandedClusterLoadSummary(for status: ProfileStatus) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(status.profile.displayName)
+                    .font(OrbitTheme.mono(13, weight: .semibold))
+                    .foregroundStyle(OrbitTheme.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(status.profile.displayName)
+
+                Spacer(minLength: 8)
+
+                Text(clusterPercentText(status.clusterLoad))
+                    .font(OrbitTheme.mono(12, weight: .semibold))
+                    .foregroundStyle(status.clusterLoad == nil ? OrbitTheme.textTimestamp : OrbitTheme.accent)
+                    .monospacedDigit()
+            }
+
+            thinLoadBar(percent: status.clusterLoad?.cpuLoadPercent, height: 6)
+
+            HStack(spacing: 8) {
+                Text(clusterAllocatedFreeText(status.clusterLoad))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(clusterAllocatedFreeHelp(status.clusterLoad))
+
+                Spacer(minLength: 8)
+
+                Text(clusterTotalCoresText(status.clusterLoad))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(clusterTotalCoresHelp(status.clusterLoad))
+            }
+            .font(OrbitTheme.mono(10))
+            .foregroundStyle(OrbitTheme.textSecondary)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func nodeDetailsPanel(for status: ProfileStatus) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Rectangle()
+                .fill(OrbitTheme.divider)
+                .frame(height: 1)
+
+            HStack {
+                Text("NODE DETAILS")
+                    .font(OrbitTheme.mono(10, weight: .semibold))
+                    .foregroundStyle(OrbitTheme.textLabel)
+                    .tracking(0.8)
+
+                Spacer(minLength: 8)
+
+                Button(viewModel.isLoadingNodeInventory ? "refreshing…" : "refresh") {
+                    viewModel.refreshNodeInventory()
+                }
+                .buttonStyle(.plain)
+                .font(OrbitTheme.mono(10, weight: .semibold))
+                .foregroundStyle(viewModel.isLoadingNodeInventory ? OrbitTheme.textTimestamp : OrbitTheme.accent)
+                .disabled(viewModel.isLoadingNodeInventory)
+            }
+
+            clusterKPIBlock(for: status)
+
+            if !nodePartitionChips.isEmpty {
+                partitionChipScroller
+            }
+
+            if viewModel.isLoadingNodeInventory && viewModel.selectedNodeRows.isEmpty {
+                clusterLoadEmptyMessage("Loading node inventory…")
+            } else if viewModel.selectedNodeRows.isEmpty {
+                clusterLoadEmptyMessage("No node details available yet")
+            } else if filteredNodeRows.isEmpty {
+                clusterLoadEmptyMessage("No nodes in this partition")
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    nodeListHeader
+
+                    ScrollView(.vertical, showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(filteredNodeRows) { row in
+                                nodeDetailRow(row)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 188)
+                    .clipped()
+                }
+            }
+        }
+    }
+
+    private func clusterLoadEmptyMessage(_ message: String) -> some View {
+        Text(message)
+            .font(OrbitTheme.mono(10))
+            .foregroundStyle(OrbitTheme.textTimestamp)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 2)
     }
 
     private var footerSection: some View {
@@ -1096,165 +1153,447 @@ struct OrbitPopoverView: View {
         }
     }
 
-    private var clusterCapacitySummary: some View {
-        HStack(spacing: 6) {
-            capacityPill(title: "CPU", value: selectedCPUCapacityText)
+    private var filteredNodeRows: [OrbitMenuBarViewModel.NodeLoadRow] {
+        guard let selectedNodePartition else { return viewModel.selectedNodeRows }
+        return viewModel.selectedNodeRows.filter { row in
+            row.node.partitions.contains { $0.caseInsensitiveCompare(selectedNodePartition) == .orderedSame }
+        }
+    }
 
-            if let gpuText = selectedGPUCapacityText {
-                capacityPill(title: "GPU", value: gpuText)
+    private var nodePartitionChips: [(name: String?, title: String, count: Int)] {
+        let rows = viewModel.selectedNodeRows
+        guard !rows.isEmpty else { return [] }
+
+        var counts: [String: Int] = [:]
+        for row in rows {
+            let partitions = row.node.partitions
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            for partition in partitions {
+                counts[partition, default: 0] += 1
+            }
+        }
+
+        var chips: [(name: String?, title: String, count: Int)] = [(nil, "all", rows.count)]
+        let sorted = counts.sorted { lhs, rhs in
+            if lhs.value != rhs.value { return lhs.value > rhs.value }
+            return lhs.key.localizedCaseInsensitiveCompare(rhs.key) == .orderedAscending
+        }
+        chips.append(contentsOf: sorted.map { (Optional($0.key), partitionChipTitle($0.key), $0.value) })
+
+        if let selectedNodePartition,
+           !chips.contains(where: { $0.name == selectedNodePartition }),
+           let selectedCount = counts[selectedNodePartition] {
+            chips.append((selectedNodePartition, partitionChipTitle(selectedNodePartition), selectedCount))
+        }
+
+        return chips
+    }
+
+    private var partitionChipScroller: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                ForEach(Array(nodePartitionChips.enumerated()), id: \.offset) { _, chip in
+                    partitionChip(name: chip.name, title: chip.title, count: chip.count)
+                }
+            }
+        }
+    }
+
+    private func clusterKPIBlock(for status: ProfileStatus) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            let load = status.clusterLoad
+            clusterStatRow(
+                label: "CPU",
+                used: load?.allocatedCPUs,
+                total: load?.totalCPUs,
+                percent: load?.cpuLoadPercent
+            )
+
+            clusterStatRow(
+                label: "NODES",
+                used: load?.allocatedNodes,
+                total: load?.totalNodes,
+                percent: load.map { nodeLoadPercent($0) }
+            )
+
+            if viewModel.selectedTotalGPUs > 0 {
+                clusterStatRow(
+                    label: "GPU",
+                    used: viewModel.selectedAllocatedGPUs,
+                    total: viewModel.selectedTotalGPUs,
+                    percent: gpuLoadPercent
+                )
             }
 
-            capacityPill(title: "NODES", value: selectedNodeCapacityText)
-            capacityPill(title: "PART", value: "\(viewModel.selectedPartitions.count)")
+            HStack(spacing: 10) {
+                Text("JOBS")
+                    .font(OrbitTheme.mono(10, weight: .semibold))
+                    .foregroundStyle(OrbitTheme.textSecondary)
+                    .tracking(0.6)
+                    .frame(width: 44, alignment: .leading)
 
-            Spacer(minLength: 0)
+                HStack(spacing: 16) {
+                    jobCountMetric(value: status.runningJobs, label: "running", accent: true)
+                    jobCountMetric(value: status.pendingJobs, label: "queued", accent: false)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .padding(.vertical, 4)
         }
     }
 
-    private var selectedCPUCapacityText: String {
-        guard let load = viewModel.selectedStatus?.clusterLoad else { return "—" }
-        return "\(load.allocatedCPUs)/\(load.totalCPUs)"
-    }
-
-    private var selectedNodeCapacityText: String {
-        guard let load = viewModel.selectedStatus?.clusterLoad else { return "—" }
-        return "\(load.allocatedNodes)/\(load.totalNodes)"
-    }
-
-    private var selectedGPUCapacityText: String? {
-        let total = viewModel.selectedTotalGPUs
-        guard total > 0 else { return nil }
-
-        if let used = viewModel.selectedAllocatedGPUs {
-            return "\(used)/\(total)"
-        }
-
-        return "\(total)"
-    }
-
-    private var selectedPartitionSummaryText: String? {
-        let partitions = viewModel.selectedPartitions
-        guard !partitions.isEmpty else { return nil }
-
-        let visible = partitions.prefix(3).map { truncateTail($0, maxLength: 18) }
-        var summary = visible.joined(separator: ", ")
-
-        if partitions.count > 3 {
-            summary += " +\(partitions.count - 3)"
-        }
-
-        return truncateTail(summary, maxLength: 58)
-    }
-
-    private var selectedPartitionSummaryTooltip: String? {
-        let partitions = viewModel.selectedPartitions
-        guard !partitions.isEmpty else { return nil }
-        return partitions.joined(separator: ", ")
-    }
-
-    private func truncateTail(_ value: String, maxLength: Int) -> String {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.count > max(1, maxLength) else { return trimmed }
-        let prefixCount = max(1, maxLength - 3)
-        return String(trimmed.prefix(prefixCount)) + "..."
-    }
-
-    @ViewBuilder
-    private func capacityPill(title: String, value: String) -> some View {
-        HStack(spacing: 4) {
-            Text(title)
-                .font(OrbitTheme.mono(9, weight: .semibold))
-                .foregroundStyle(OrbitTheme.textTimestamp)
-            Text(value)
-                .font(OrbitTheme.mono(9, weight: .semibold))
+    private func clusterStatRow(label: String, used: Int?, total: Int?, percent: Double?) -> some View {
+        HStack(spacing: 10) {
+            Text(label)
+                .font(OrbitTheme.mono(10, weight: .semibold))
                 .foregroundStyle(OrbitTheme.textSecondary)
+                .tracking(0.6)
+                .frame(width: 44, alignment: .leading)
+
+            thinLoadBar(percent: percent, height: 4)
+
+            Text(capacityFractionText(used: used, total: total))
+                .font(OrbitTheme.mono(11))
+                .foregroundStyle(OrbitTheme.textPrimary.opacity(0.9))
+                .monospacedDigit()
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .help(capacityFractionHelp(used: used, total: total))
+                .frame(width: 70, alignment: .trailing)
+
+            Text(percentText(percent))
+                .font(OrbitTheme.mono(10.5, weight: .semibold))
+                .foregroundStyle(percent == nil ? OrbitTheme.textTimestamp : OrbitTheme.accent)
+                .monospacedDigit()
+                .frame(width: 30, alignment: .trailing)
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 3)
-        .background(OrbitTheme.mutedFill)
-        .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .padding(.vertical, 4)
+    }
+
+    private func jobCountMetric(value: Int, label: String, accent: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(compactCount(value))
+                .font(OrbitTheme.mono(11, weight: .semibold))
+                .foregroundStyle(accent ? OrbitTheme.accent : OrbitTheme.textPrimary.opacity(0.9))
+                .monospacedDigit()
+                .lineLimit(1)
+                .help(groupedCount(value))
+
+            Text(label)
+                .font(OrbitTheme.mono(10))
+                .foregroundStyle(OrbitTheme.textLabel)
+                .lineLimit(1)
+        }
+    }
+
+    private func partitionChip(name: String?, title: String, count: Int) -> some View {
+        let isSelected = selectedNodePartition == name
+        return Button {
+            selectedNodePartition = name
+        } label: {
+            HStack(spacing: 4) {
+                Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(compactCount(count))
+                    .foregroundStyle(isSelected ? OrbitTheme.accent.opacity(0.75) : OrbitTheme.textLabel)
+                    .lineLimit(1)
+                    .help(groupedCount(count))
+            }
+            .font(OrbitTheme.mono(10, weight: isSelected ? .semibold : .regular))
+            .foregroundStyle(isSelected ? OrbitTheme.accent : OrbitTheme.textSecondary)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 4)
+            .frame(maxWidth: 112)
+            .background(isSelected ? OrbitTheme.accent.opacity(0.12) : Color.clear)
+            .overlay {
+                RoundedRectangle(cornerRadius: 4, style: .continuous)
+                    .stroke(isSelected ? OrbitTheme.accent.opacity(0.55) : Color.white.opacity(0.12), lineWidth: 0.5)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .help(name ?? "All nodes")
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func thinLoadBar(percent: Double?, height: CGFloat) -> some View {
+        GeometryReader { geo in
+            let progress = max(0, min(1, (percent ?? 0) / 100.0))
+            let width = geo.size.width * progress
+
+            ZStack(alignment: .leading) {
+                RoundedRectangle(cornerRadius: max(1, height / 2), style: .continuous)
+                    .fill(Color.white.opacity(0.10))
+                    .frame(height: height)
+
+                RoundedRectangle(cornerRadius: max(1, height / 2), style: .continuous)
+                    .fill(percent == nil ? OrbitTheme.textTimestamp.opacity(0.35) : OrbitTheme.accent)
+                    .frame(width: width, height: height)
+            }
+        }
+        .frame(height: height)
+    }
+
+    private func partitionChipTitle(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "—" }
+        return trimmed.count > 14 ? String(trimmed.prefix(13)) + "…" : trimmed
+    }
+
+    private func clusterPercentText(_ load: ClusterLoad?) -> String {
+        percentText(load?.cpuLoadPercent)
+    }
+
+    private func percentText(_ percent: Double?) -> String {
+        guard let percent else { return "—" }
+        return String(format: "%.0f%%", max(0, min(999, percent)))
+    }
+
+    private func nodeLoadPercent(_ load: ClusterLoad) -> Double {
+        guard load.totalNodes > 0 else { return 0 }
+        return Double(load.allocatedNodes) / Double(load.totalNodes) * 100.0
+    }
+
+    private var gpuLoadPercent: Double? {
+        let total = viewModel.selectedTotalGPUs
+        guard total > 0, let used = viewModel.selectedAllocatedGPUs else { return nil }
+        return Double(max(0, min(used, total))) / Double(total) * 100.0
+    }
+
+    private func clusterAllocatedFreeText(_ load: ClusterLoad?) -> String {
+        guard let load, load.totalCPUs > 0 else { return "load unavailable" }
+        let allocated = max(0, min(load.allocatedCPUs, load.totalCPUs))
+        let free = max(0, load.totalCPUs - allocated)
+        return "\(compactCount(allocated)) alloc · \(compactCount(free)) free"
+    }
+
+    private func clusterAllocatedFreeHelp(_ load: ClusterLoad?) -> String {
+        guard let load, load.totalCPUs > 0 else { return "Cluster load unavailable" }
+        let allocated = max(0, min(load.allocatedCPUs, load.totalCPUs))
+        let free = max(0, load.totalCPUs - allocated)
+        return "\(groupedCount(allocated)) allocated · \(groupedCount(free)) free"
+    }
+
+    private func clusterTotalCoresText(_ load: ClusterLoad?) -> String {
+        guard let load, load.totalCPUs > 0 else { return "— cores" }
+        return "\(compactCount(load.totalCPUs)) cores"
+    }
+
+    private func clusterTotalCoresHelp(_ load: ClusterLoad?) -> String {
+        guard let load, load.totalCPUs > 0 else { return "Total cores unavailable" }
+        return "\(groupedCount(load.totalCPUs)) cores"
+    }
+
+    private func capacityFractionText(used: Int?, total: Int?) -> String {
+        guard let used, let total, total > 0 else { return "—" }
+        return "\(compactCount(max(0, min(used, total))))/\(compactCount(total))"
+    }
+
+    private func capacityFractionHelp(used: Int?, total: Int?) -> String {
+        guard let used, let total, total > 0 else { return "Capacity unavailable" }
+        return "\(groupedCount(max(0, min(used, total)))) / \(groupedCount(total))"
+    }
+
+    private func compactCount(_ value: Int) -> String {
+        let safe = max(0, value)
+        if safe >= 1_000_000 {
+            return String(format: "%.1fM", Double(safe) / 1_000_000.0)
+        }
+        if safe >= 10_000 {
+            return String(format: "%.0fK", Double(safe) / 1_000.0)
+        }
+        return "\(safe)"
+    }
+
+    private func groupedCount(_ value: Int) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .decimal
+        formatter.groupingSeparator = " "
+        return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
     }
 
     // MARK: - Table layouts
 
     private enum NodeTableLayout {
-        static let node: CGFloat = 84
-        static let state: CGFloat = 56
-        static let cpu: CGFloat = 34
-        static let ram: CGFloat = 48
+        static let dot: CGFloat = 8
+        static let node: CGFloat = 52
+        static let state: CGFloat = 50
+        static let cpu: CGFloat = 44
+        static let ram: CGFloat = 52
         static let gpu: CGFloat = 28
-        static let part: CGFloat = 62
+        static let part: CGFloat = 56
     }
 
     private var nodeListHeader: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 0) {
             HStack(spacing: 6) {
+                Text("")
+                    .frame(width: NodeTableLayout.dot, alignment: .leading)
                 Text("NODE")
                     .frame(width: NodeTableLayout.node, alignment: .leading)
                 Text("STATE")
-                    .frame(width: NodeTableLayout.state, alignment: .center)
+                    .frame(width: NodeTableLayout.state, alignment: .leading)
                 Text("CPU")
                     .frame(width: NodeTableLayout.cpu, alignment: .center)
-                Text("RAM GB")
+                Text("RAM/GB")
                     .frame(width: NodeTableLayout.ram, alignment: .center)
                 Text("GPU")
                     .frame(width: NodeTableLayout.gpu, alignment: .center)
                 Text("PART")
-                    .frame(width: NodeTableLayout.part, alignment: .leading)
+                    .frame(width: NodeTableLayout.part, alignment: .center)
             }
             .font(OrbitTheme.mono(9, weight: .semibold))
             .foregroundStyle(OrbitTheme.textTimestamp)
+            .tracking(0.9)
+            .padding(.bottom, 10)
 
             Rectangle()
-                .fill(OrbitTheme.divider)
-                .frame(height: 1)
+                .fill(Color.white.opacity(0.035))
+                .frame(height: 0.5)
         }
-        .padding(.horizontal, Layout.detailInset)
     }
 
     private func nodeDetailRow(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> some View {
         HStack(spacing: 6) {
+            Circle()
+                .fill(nodeStateDotTint(row))
+                .frame(width: 6, height: 6)
+                .frame(width: NodeTableLayout.dot, alignment: .leading)
+
             Text(row.name)
-                .font(OrbitTheme.mono(10, weight: .semibold))
-                .foregroundStyle(OrbitTheme.textSecondary)
+                .font(OrbitTheme.mono(11))
+                .foregroundStyle(OrbitTheme.textPrimary.opacity(0.88))
                 .frame(width: NodeTableLayout.node, alignment: .leading)
                 .lineLimit(1)
-                .truncationMode(.head)
+                .truncationMode(.middle)
                 .help(row.name)
 
-            Text(compactNodeState(row.state))
-                .font(OrbitTheme.mono(10, weight: .semibold))
-                .foregroundStyle(nodeStateTint(row))
-                .frame(width: NodeTableLayout.state, alignment: .center)
+            Text(nodeStateLabel(row))
+                .font(OrbitTheme.mono(10))
+                .foregroundStyle(nodeStatePresentation(row).tint)
+                .tracking(0.4)
+                .frame(width: NodeTableLayout.state, alignment: .leading)
                 .lineLimit(1)
+                .help(row.state)
 
             Text(row.cpuText)
                 .font(OrbitTheme.mono(10))
-                .foregroundStyle(OrbitTheme.textSecondary)
+                .foregroundStyle(nodeCPUTextTint(row))
+                .monospacedDigit()
                 .frame(width: NodeTableLayout.cpu, alignment: .center)
                 .lineLimit(1)
+                .help(row.cpuText)
 
             Text(memoryUsageGBText(row))
                 .font(OrbitTheme.mono(10))
-                .foregroundStyle(OrbitTheme.textSecondary)
+                .foregroundStyle(nodeMemoryTextTint(row))
+                .monospacedDigit()
                 .frame(width: NodeTableLayout.ram, alignment: .center)
                 .lineLimit(1)
+                .help(memoryUsageGBText(row))
 
             Text(gpuCountText(row))
                 .font(OrbitTheme.mono(10))
-                .foregroundStyle(row.gpuText == nil ? OrbitTheme.textTimestamp : OrbitTheme.array.opacity(0.9))
+                .foregroundStyle(nodeGPUTextTint(row))
+                .monospacedDigit()
                 .frame(width: NodeTableLayout.gpu, alignment: .center)
                 .lineLimit(1)
+                .help(gpuCountText(row))
 
-            Text(primaryPartitionLabel(row) ?? "—")
-                .font(OrbitTheme.mono(10))
-                .foregroundStyle(OrbitTheme.textTimestamp)
-                .frame(width: NodeTableLayout.part, alignment: .leading)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            partitionTag(for: row)
         }
-        .padding(.horizontal, Layout.detailInset)
-        .padding(.vertical, 1)
+        .padding(.vertical, 7)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(Color.white.opacity(0.035))
+                .frame(height: 0.5)
+        }
+    }
+
+    private func partitionTag(for row: OrbitMenuBarViewModel.NodeLoadRow) -> some View {
+        Text(primaryPartitionLabel(row) ?? "—")
+            .font(OrbitTheme.mono(9))
+            .foregroundStyle(OrbitTheme.textSecondary.opacity(0.75))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(width: NodeTableLayout.part - 12, alignment: .center)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(OrbitTheme.mutedFill)
+            .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+            .frame(width: NodeTableLayout.part, alignment: .center)
+            .help(row.node.partitions.joined(separator: ", "))
+    }
+
+    private func nodeStateLabel(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> String {
+        nodeStatePresentation(row).label
+    }
+
+    private func nodeStateDotTint(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> Color {
+        nodeStatePresentation(row).tint
+    }
+
+    private func nodeStatePresentation(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> (label: String, tint: Color) {
+        let state = row.state.uppercased()
+        let totalCPU = max(0, row.node.totalCPUs)
+        let allocatedCPU = max(0, min(row.node.allocatedCPUs, totalCPU))
+
+        if state.contains("DOWN") || state.contains("FAIL") || state.contains("INVAL") {
+            return ("down", OrbitTheme.danger)
+        }
+
+        if state.contains("DRAIN") {
+            return ("drain", OrbitTheme.warning)
+        }
+
+        if state.contains("MAINT") {
+            return ("maint", OrbitTheme.warning)
+        }
+
+        if state.contains("RESV") || state.contains("RESERVED") {
+            return ("reserved", OrbitTheme.array.opacity(0.95))
+        }
+
+        if state.contains("MIX") {
+            return ("busy", OrbitTheme.warning)
+        }
+
+        if state.contains("ALLOC") {
+            let label = totalCPU > 0 && allocatedCPU >= totalCPU ? "full" : "busy"
+            return (label, OrbitTheme.accent)
+        }
+
+        if state.contains("COMPLET") {
+            return ("busy", OrbitTheme.accent.opacity(0.85))
+        }
+
+        if state.contains("IDLE") {
+            return ("idle", OrbitTheme.textTimestamp.opacity(0.95))
+        }
+
+        return (compactNodeState(row.state).lowercased(), OrbitTheme.textTimestamp.opacity(0.65))
+    }
+
+    private func nodeCPUTextTint(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> Color {
+        let total = max(0, row.node.totalCPUs)
+        let used = max(0, min(row.node.allocatedCPUs, total))
+        guard total > 0 else { return OrbitTheme.textTimestamp }
+        if used == 0 { return OrbitTheme.textTimestamp }
+        if used >= total { return OrbitTheme.accent }
+        return OrbitTheme.textSecondary
+    }
+
+    private func nodeMemoryTextTint(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> Color {
+        guard row.node.memoryMB != nil else { return OrbitTheme.textTimestamp }
+        return OrbitTheme.textSecondary
+    }
+
+    private func nodeGPUTextTint(_ row: OrbitMenuBarViewModel.NodeLoadRow) -> Color {
+        guard let total = row.gpuTotalCount, total > 0 else { return OrbitTheme.textTimestamp }
+        let used = max(0, min(row.gpuUsedCount ?? 0, total))
+        if used >= total { return OrbitTheme.accent }
+        return OrbitTheme.textSecondary
     }
 
 }

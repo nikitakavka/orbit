@@ -89,6 +89,8 @@ cat > "$APP_DIR/Contents/Info.plist" <<PLIST
   <true/>
   <key>NSHighResolutionCapable</key>
   <true/>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Orbit uses SSH to connect to your cluster login node and read your SLURM queue.</string>
 </dict>
 </plist>
 PLIST
