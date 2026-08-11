@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Orbit — SLURM jobs in your macOS menu bar</title>
+  <meta name="description" content="Orbit watches your SLURM jobs, arrays, and cluster load from the macOS menu bar over SSH. No account, backend, or telemetry." />
+  <meta name="theme-color" content="#090909" />
+  <meta property="og:title" content="Orbit — SLURM jobs in your macOS menu bar" />
+  <meta property="og:description" content="A quiet, local-first macOS monitor for SLURM." />
+  <meta property="og:type" content="website" />
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="styles.css?v=gravity-game-5" />
+  <script>document.documentElement.classList.add('js');</script>
+  <script defer src="site.js?v=reveal-1"></script>
+  <script defer src="orbit-field.js?v=ambient-ships-2"></script>
+</head>
+<body>
+  <a class="skip-link" href="#content">Skip to content</a>
+
+  <svg class="svg-defs" aria-hidden="true">
+    <symbol id="orbit-mark" viewBox="0 0 512 512">
+      <g transform="rotate(-25 256 256)">
+        <ellipse class="mark-ring" cx="256" cy="256" rx="190" ry="70" fill="none" />
+        <ellipse class="mark-cut" cx="256" cy="256" rx="190" ry="70" pathLength="976" fill="none" />
+      </g>
+      <circle class="mark-core" cx="256" cy="256" r="30" />
+    </symbol>
+  </svg>
+
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Orbit home">
+      <svg viewBox="0 0 512 512" aria-hidden="true"><use href="#orbit-mark" /></svg>
+      <span>ORBIT</span>
+    </a>
+
+    <nav class="site-nav" aria-label="Primary navigation">
+      <a href="#capabilities">What it shows</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="https://github.com/nikitakavka/orbit">Source</a>
+      <a class="nav-download" href="https://github.com/nikitakavka/orbit/releases/latest/download/Orbit.app.zip">Download</a>
+    </nav>
+  </header>
+
+  <main id="content">
+    <section class="hero" id="top">
+      <canvas class="hero-field" data-orbit-field aria-hidden="true"></canvas>
+      <div class="gravity-hint" data-gravity-hint aria-hidden="true"><i></i><span>Hold left click · drag · release</span></div>
+      <div class="hero-grid page-width">
+        <div class="hero-copy">
+          <h1 data-reveal>Orbit</h1>
+          <p class="hero-subtitle" data-reveal>A macOS menu bar app for personal SLURM monitoring.</p>
+          <p class="hero-lede" data-reveal>
+            Orbit visualizes and tracks the jobs and arrays owned by your account over SSH. It does not require a separate monitoring stack on the cluster.
+          </p>
+          <div class="hero-actions" data-reveal>
+            <a class="button button-solid" href="https://github.com/nikitakavka/orbit/releases/latest/download/Orbit.app.zip">Download Orbit</a>
+            <a class="text-link" href="https://github.com/nikitakavka/orbit">Source</a>
+          </div>
+        </div>
+
+        <div class="hero-logo" data-reveal>
+          <svg viewBox="0 0 512 512" role="img" aria-label="Orbit logo">
+            <use href="#orbit-mark" />
+          </svg>
+        </div>
+      </div>
+      <a class="scroll-cue" href="#capabilities"><span>Continue</span><i></i></a>
+    </section>
+
+    <section class="overview ruled-section" id="capabilities">
+      <div class="page-width">
+        <header class="plain-heading">
+          <h2 data-reveal>What Orbit shows</h2>
+          <p data-reveal>A read-oriented view of your jobs, arrays, resource use, and cluster capacity. Submission stays in your terminal.</p>
+        </header>
+
+        <div class="data-list">
+          <article class="data-row" data-reveal>
+            <span class="data-index">01 / Jobs</span>
+            <div class="data-copy">
+              <h3>Running and pending jobs</h3>
+              <p>Current state and enough allocation context to understand where a job is and how long it has left.</p>
+            </div>
+            <div class="data-graphic jobs-graphic" aria-hidden="true">
+              <div class="graphic-axis"><span>QUEUE</span><span>STATUS</span></div>
+              <div class="job-strip strip-running">
+                <i></i><strong>job_042</strong><span><b>16 CPU</b> · 64 GB · node_07</span><em>2h 14m / 8h</em><b>RUN</b>
+              </div>
+              <div class="job-strip strip-running">
+                <i></i><strong>job_043</strong><span><b>8 CPU</b> · 24 GB · node_12</span><em>1h 51m / 4h</em><b>RUN</b>
+              </div>
+              <div class="job-strip strip-pending">
+                <i></i><strong>job_044</strong><span><b>32 CPU</b> · 128 GB</span><em>RESOURCES</em><b>WAIT</b>
+              </div>
+            </div>
+          </article>
+
+          <article class="data-row" data-reveal>
+            <span class="data-index">02 / Arrays</span>
+            <div class="data-copy">
+              <h3>Array progress and tasks</h3>
+              <p>The parent array at a glance, with task counts and the longest-running children available when expanded.</p>
+            </div>
+            <div class="data-graphic array-graphic" aria-hidden="true">
+              <div class="graphic-axis"><span>ARRAY_1</span><span>10 / 36</span></div>
+              <div class="array-summary">
+                <div><strong>10 <small>/ 36</small></strong><span>tasks completed</span></div>
+                <div class="array-counts"><span><b class="text-array">6</b> running</span><span><b class="text-warning">20</b> pending</span></div>
+              </div>
+              <div class="metric-track array-progress"><i class="metric-fill fill-array" style="--value: .28"></i></div>
+              <div class="array-meta"><span>6 CPU / task</span><span>64 GB / task</span><span>10h walltime</span></div>
+            </div>
+          </article>
+
+          <article class="data-row" data-reveal>
+            <span class="data-index">03 / Cluster</span>
+            <div class="data-copy">
+              <h3>Cluster and node allocation</h3>
+              <p>Scheduler allocation across the cluster, followed by capacity and state for individual nodes.</p>
+            </div>
+            <div class="data-graphic load-graphic" aria-hidden="true">
+              <div class="graphic-axis"><span>ALLOCATED</span><span>CAPACITY →</span></div>
+              <div class="load-line"><span>CPU</span><div class="metric-track"><i class="metric-fill fill-accent" style="--value: .70"></i></div><strong>70%</strong><small>1454 / 2088</small></div>
+              <div class="load-line"><span>NODES</span><div class="metric-track"><i class="metric-fill fill-accent" style="--value: .81"></i></div><strong>81%</strong><small>38 / 47</small></div>
+              <div class="load-jobs"><span>JOBS</span><div><b>4</b> running <b>1</b> queued</div></div>
+            </div>
+          </article>
+
+          <article class="data-row" data-reveal>
+            <span class="data-index">04 / History</span>
+            <div class="data-copy">
+              <h3>CPU use and local history</h3>
+              <p>A six-hour core-use trace while work is active and a local weekly summary when the queue is idle.</p>
+            </div>
+            <div class="data-graphic history-graphic" aria-hidden="true">
+              <div class="graphic-axis"><span>MON — SUN</span><span>CORE HOURS ↑</span></div>
+              <div class="week-bars">
+                <span><i style="--height: .82"></i><b>M</b></span>
+                <span><i style="--height: .35"></i><b>T</b></span>
+                <span><i style="--height: .58"></i><b>W</b></span>
+                <span><i style="--height: .44"></i><b>T</b></span>
+                <span><i style="--height: .72"></i><b>F</b></span>
+                <span><i style="--height: .26"></i><b>S</b></span>
+                <span><i style="--height: .48"></i><b>S</b></span>
+              </div>
+              <div class="history-totals"><span><b>37</b> jobs</span><span><b>660</b> CPU·h</span><span><b>$13.20</b> estimated</span></div>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="technical ruled-section" id="how-it-works">
+      <div class="page-width">
+        <header class="plain-heading">
+          <h2 data-reveal>How Orbit gets data</h2>
+          <p data-reveal>Scheduler output returns through the login node over SSH. Orbit parses it and stores observations in SQLite on your Mac.</p>
+        </header>
+
+        <div class="signal-path signal-path-four" data-reveal aria-label="SLURM output returns over SSH to Orbit and is stored in SQLite on your Mac">
+          <div class="signal-node">
+            <span>01 / Scheduler</span>
+            <strong>SLURM</strong>
+            <small>User-level JSON output</small>
+          </div>
+
+          <div class="signal-connector"><span>scheduler output</span><i></i></div>
+
+          <div class="signal-node">
+            <span>02 / SSH</span>
+            <strong>Login node</strong>
+            <small>Your existing account</small>
+          </div>
+
+          <div class="signal-connector"><span>system OpenSSH</span><i></i></div>
+
+          <div class="signal-node">
+            <span>03 / macOS</span>
+            <strong>Orbit.app</strong>
+            <small>Parses scheduler output</small>
+          </div>
+
+          <div class="signal-connector"><span>local write</span><i></i></div>
+
+          <div class="signal-node signal-storage">
+            <span>04 / Your Mac</span>
+            <strong>SQLite</strong>
+            <small>Observations and history</small>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="page-width">
+      <span>Orbit / macOS + SLURM</span>
+      <span>MIT License</span>
+      <span>Built by Nikita Kavka</span>
+    </div>
+  </footer>
+</body>
+</html>
