@@ -3,11 +3,28 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
 -->
 # Orbit 1.1.3
 
-Orbit 1.1.3 corrects the **Open folders & quit** action in the installation reminder.
+Orbit 1.1.3 adds signed in-app updates, Launch at Login, and accounting-backed Slurm array progress.
 
-## Fix
+## Updates and macOS integration
 
-- Opens the source and Applications folders, saves the onboarding resume point, and exits promptly.
-- Avoids a shutdown deadlock that could leave Orbit running with monitoring stopped.
+- Adds Sparkle 2 with signed feeds, release notes, and update archives.
+- Requires explicit approval before downloading an update.
+- Links update prompts to the corresponding GitHub release.
+- Checks for updates every 12 hours by default; automatic checks can be disabled in Settings.
+- Adds optional Launch at Login support.
+- Warns when Orbit is running outside `/Applications` or `~/Applications`, with a working **Open folders & quit** action.
 
-Existing cluster profiles, settings, and monitoring history are unchanged.
+## Slurm array monitoring
+
+- Uses `sacct` as the primary source for array totals and finished-task counts.
+- Falls back to `sbatch --array` or the batch script's `#SBATCH --array` directive when accounting is unavailable.
+- Supports grouped accounting records, hexadecimal task bitmaps, and nested state values returned by Slurm's JSON API.
+- Tracks total and finished-task provenance independently while keeping progress monotonic.
+
+## Interface
+
+- Updates the menu bar presentation, onboarding flow, settings, status icon, and project website.
+
+## Installation
+
+Orbit 1.0.1 does not include the new update framework, so this release must be installed manually. Existing cluster profiles, SSH-key paths, settings, history, and metrics are retained. Future releases can be installed from within Orbit.
