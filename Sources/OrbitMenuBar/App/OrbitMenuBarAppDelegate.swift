@@ -11,7 +11,9 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem?
     private var statusIconTimer: Timer?
     private var terminationTask: Task<Void, Never>?
+    private var terminationFallbackTask: Task<Void, Never>?
     private var isPreparingToTerminate = false
+    private var didReplyToTermination = false
     private let statusIconAnimationStartedAt = ProcessInfo.processInfo.systemUptime
     private let popover = NSPopover()
     private var settingsWindow: NSWindow?
@@ -98,22 +100,43 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
         guard !isPreparingToTerminate else { return .terminateLater }
 
         isPreparingToTerminate = true
+        didReplyToTermination = false
         statusIconTimer?.invalidate()
         statusIconTimer = nil
 
-        terminationTask = Task {
+        terminationTask = Task { [weak self] in
             await viewModel.stopAndWait()
-            sender.reply(toApplicationShouldTerminate: true)
+            guard !Task.isCancelled else { return }
+            self?.finishTermination(sender)
         }
+
+        // SSH cleanup can be queued behind an in-flight command. Do not leave
+        // the app visibly running indefinitely when the user chose to quit.
+        terminationFallbackTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            guard !Task.isCancelled else { return }
+            self?.finishTermination(sender)
+        }
+
         return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         statusIconTimer?.invalidate()
         statusIconTimer = nil
+        terminationTask?.cancel()
+        terminationFallbackTask?.cancel()
         if !isPreparingToTerminate {
             viewModel?.stop()
         }
+    }
+
+    private func finishTermination(_ application: NSApplication) {
+        guard isPreparingToTerminate, !didReplyToTermination else { return }
+        didReplyToTermination = true
+        terminationTask?.cancel()
+        terminationFallbackTask?.cancel()
+        application.reply(toApplicationShouldTerminate: true)
     }
 
     private func delayedUpdateCheckSeconds() -> Double? {

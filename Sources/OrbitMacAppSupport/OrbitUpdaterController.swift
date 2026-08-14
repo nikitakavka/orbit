@@ -442,7 +442,7 @@ public final class OrbitUpdaterController: ObservableObject {
     fileprivate func didNotFindUpdate(_ error: Error) {
         resetUpdateDetails(keepingExpansion: true)
         phase = .upToDate
-        statusDetail = "You already have the newest version of Orbit."
+        statusDetail = "No newer compatible Orbit update is available."
         requestPresentation(expanded: true)
     }
 
