@@ -334,7 +334,12 @@ final class OrbitOnboardingViewModel: ObservableObject {
     }
 
     func quitAndShowInstallationFolders() {
-        UserDefaults.standard.set(true, forKey: Self.resumeAtStartupKey)
+        Self.openInstallationFoldersAndExit()
+    }
+
+    static func openInstallationFoldersAndExit() {
+        UserDefaults.standard.set(true, forKey: resumeAtStartupKey)
+        UserDefaults.standard.synchronize()
 
         let appURL = Bundle.main.bundleURL
         let sourceDirectory: URL
@@ -348,9 +353,15 @@ final class OrbitOnboardingViewModel: ObservableObject {
         NSWorkspace.shared.open(sourceDirectory)
         NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications", isDirectory: true))
 
-        Task {
+        Task.detached(priority: .userInitiated) {
             try? await Task.sleep(nanoseconds: 350_000_000)
-            NSApplication.shared.terminate(nil)
+            guard !Task.isCancelled else { return }
+
+            // Calling NSApplication.terminate from a MainActor task can block
+            // the asynchronous termination reply that it is waiting for.
+            // Configuration is already persisted, so this installation-only
+            // quit path can exit directly after Finder has opened both folders.
+            exit(EXIT_SUCCESS)
         }
     }
 

@@ -64,7 +64,7 @@ build_test_app() {
     "$ROOT_DIR/scripts/build-macos-app.sh" "$output_dir" >/dev/null
 }
 
-echo "[1/5] Building old and new temporary apps"
+echo "[1/6] Building old and new temporary apps"
 build_test_app "$TEST_ROOT/old" 9.0.0 9000
 build_test_app "$TEST_ROOT/new" 9.0.1 9001
 
@@ -83,7 +83,7 @@ RELEASE_TAG=v9.0.1 \
     "$TEST_ROOT/new/$APP_NAME.app.zip" \
     "$TEST_ROOT/feed/appcast.xml" >/dev/null
 
-echo "[2/5] Verifying the signed update archive"
+echo "[2/6] Verifying the signed update archive"
 SIGNATURE="$(python3 - "$TEST_ROOT/feed/appcast.xml" <<'PY'
 import sys
 import xml.etree.ElementTree as ET
@@ -109,10 +109,26 @@ fi
 rm -rf "$INSTALLED_APP"
 ditto "$TEST_ROOT/old/$APP_NAME.app" "$INSTALLED_APP"
 
-echo "[3/5] Registering and unregistering the temporary Login Item"
+echo "[3/6] Registering and unregistering the temporary Login Item"
 "$INSTALLED_APP/Contents/MacOS/$APP_NAME" --test-launch-at-login
 
-echo "[4/5] Serving the localhost update feed"
+echo "[4/6] Verifying the installation-folder quit action"
+"$INSTALLED_APP/Contents/MacOS/$APP_NAME" --test-installation-folder-quit &
+INSTALLATION_QUIT_PID=$!
+for _ in $(seq 1 20); do
+  if ! kill -0 "$INSTALLATION_QUIT_PID" 2>/dev/null; then
+    break
+  fi
+  sleep 0.2
+done
+if kill -0 "$INSTALLATION_QUIT_PID" 2>/dev/null; then
+  kill -9 "$INSTALLATION_QUIT_PID" 2>/dev/null || true
+  echo "Installation-folder quit action did not exit promptly." >&2
+  exit 1
+fi
+wait "$INSTALLATION_QUIT_PID"
+
+echo "[5/6] Serving the localhost update feed"
 python3 -m http.server "$PORT" \
   --bind 127.0.0.1 \
   --directory "$TEST_ROOT/feed" \
@@ -126,7 +142,7 @@ ORBIT_ENABLE_NOTIFICATIONS=0 \
   "$INSTALLED_APP/Contents/MacOS/$APP_NAME" --test-automatic-update \
   >"$TEST_ROOT/app.log" 2>&1 &
 
-echo "[5/5] Waiting for signed in-app update 9000 → 9001"
+echo "[6/6] Waiting for signed in-app update 9000 → 9001"
 for _ in $(seq 1 60); do
   CURRENT_BUILD="$(plutil -extract CFBundleVersion raw "$INSTALLED_APP/Contents/Info.plist" 2>/dev/null || echo missing)"
   if [[ "$CURRENT_BUILD" == "9001" ]]; then

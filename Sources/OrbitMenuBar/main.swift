@@ -85,6 +85,12 @@ func runSmokeTest() async -> Int32 {
     }
 }
 
+if CommandLine.arguments.contains("--test-installation-folder-quit") {
+    OrbitOnboardingViewModel.openInstallationFoldersAndExit()
+    RunLoop.main.run()
+    exit(1)
+}
+
 if CommandLine.arguments.contains("--test-launch-at-login") {
     let code = await runLaunchAtLoginIntegrationTest()
     exit(code)
