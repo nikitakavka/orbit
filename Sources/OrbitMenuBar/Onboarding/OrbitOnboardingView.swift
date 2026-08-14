@@ -128,7 +128,7 @@ struct OrbitOnboardingView: View {
             .padding(.top, 28)
             .padding(.bottom, 20)
 
-            if viewModel.isExistingConfigurationSetup {
+            if viewModel.showsExistingConfigurationNotice {
                 startupNoticeCard(
                     icon: "checkmark",
                     tint: Palette.green,

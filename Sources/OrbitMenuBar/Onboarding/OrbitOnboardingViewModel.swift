@@ -36,6 +36,7 @@ final class OrbitOnboardingViewModel: ObservableObject {
     enum SetupMode {
         case full
         case existingConfiguration
+        case installationReminder
     }
 
     enum Step: Int, CaseIterable {
@@ -214,14 +215,27 @@ final class OrbitOnboardingViewModel: ObservableObject {
     }
 
     var isExistingConfigurationSetup: Bool {
-        if case .existingConfiguration = setupMode { return true }
-        return false
+        switch setupMode {
+        case .existingConfiguration, .installationReminder:
+            return true
+        case .full:
+            return false
+        }
+    }
+
+    var showsExistingConfigurationNotice: Bool {
+        isExistingConfigurationSetup && existingProfile != nil
     }
 
     var navigationSteps: [Step] {
-        isExistingConfigurationSetup
-            ? [.startup, .notifications, .done]
-            : Step.allCases
+        switch setupMode {
+        case .full:
+            return Step.allCases
+        case .existingConfiguration:
+            return [.startup, .notifications, .done]
+        case .installationReminder:
+            return [.startup]
+        }
     }
 
     func isStepReachableInNavigation(_ target: Step) -> Bool {
@@ -304,6 +318,11 @@ final class OrbitOnboardingViewModel: ObservableObject {
     }
 
     func continueFromStartup() {
+        if case .installationReminder = setupMode {
+            onFinish()
+            return
+        }
+
         step = isExistingConfigurationSetup ? .notifications : .cluster
         if step == .notifications {
             refreshNotificationPermissionStatus()

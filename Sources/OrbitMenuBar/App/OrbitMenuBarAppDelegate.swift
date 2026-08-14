@@ -250,6 +250,17 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
         guard let runtime else { return }
 
         let profiles = (try? runtime.service.listProfiles()) ?? []
+
+        if !launchAtLoginController.isInstalledInApplications,
+           OrbitOnboardingViewModel.isCurrentSetupCompleted() {
+            showOnboardingInPopover(
+                startAtCluster: false,
+                setupMode: .installationReminder,
+                existingProfile: profiles.first
+            )
+            return
+        }
+
         if profiles.isEmpty {
             guard !OrbitOnboardingViewModel.isCompleted() else { return }
             showOnboardingInPopover(startAtCluster: false)
@@ -282,10 +293,13 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
         let initialStep: OrbitOnboardingViewModel.Step
         if startAtCluster {
             initialStep = .cluster
-        } else if case .existingConfiguration = setupMode {
-            initialStep = .startup
         } else {
-            initialStep = launchStep
+            switch setupMode {
+            case .full:
+                initialStep = launchStep
+            case .existingConfiguration, .installationReminder:
+                initialStep = .startup
+            }
         }
 
         let vm = OrbitOnboardingViewModel(
