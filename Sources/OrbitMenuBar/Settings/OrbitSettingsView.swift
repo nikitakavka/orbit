@@ -3,9 +3,10 @@ import OrbitCore
 
 struct OrbitSettingsView: View {
     @ObservedObject var viewModel: OrbitSettingsViewModel
-    @State private var selectedTab: Tab = .clusters
+    @State private var selectedTab: Tab = .general
 
     enum Tab: String, CaseIterable, Identifiable {
+        case general = "General"
         case clusters = "Clusters"
         case activity = "Activity Log"
         case about = "About"
@@ -33,6 +34,8 @@ struct OrbitSettingsView: View {
 
                 Group {
                     switch selectedTab {
+                    case .general:
+                        generalTab
                     case .clusters:
                         clustersTab
                     case .activity:

@@ -243,7 +243,7 @@ struct OrbitCLI {
 
         if opts["--all"] == "true" {
             print("Watching all active profiles... press Ctrl+C to stop")
-            try await service.watchAll(iterations: iterations) { tick in
+            try await service.watchAll(iterations: iterations, onTick: { tick in
                 let timestamp = ISO8601DateFormatter().string(from: Date())
                 if let error = tick.result.error {
                     let agePart = tick.result.staleAgeSeconds.map { " stale_age=\(formatAge($0))" } ?? ""
@@ -252,7 +252,7 @@ struct OrbitCLI {
                 } else {
                     print("[\(timestamp)] profile=\(tick.profile.displayName) tick=\(tick.tick) jobs=\(tick.result.jobs.count)")
                 }
-            }
+            })
             print("Watch ended.")
             return
         }

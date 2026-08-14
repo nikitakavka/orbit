@@ -3,11 +3,16 @@ import SwiftUI
 import Charts
 #endif
 import OrbitCore
+import OrbitMacAppSupport
 
 struct OrbitPopoverView: View {
     @ObservedObject var viewModel: OrbitMenuBarViewModel
     @ObservedObject var presentation: OrbitMenuBarPresentationModel
     let onOpenSettings: () -> Void
+
+    private var updater: OrbitUpdaterController {
+        presentation.updaterController
+    }
 
     @State private var forceShowStats: Bool = false
     @State private var isRunningExpanded: Bool = false
@@ -575,7 +580,7 @@ struct OrbitPopoverView: View {
 
                     Spacer(minLength: 8)
 
-                    Text("\(group.done)/\(group.total)")
+                    Text(group.progressText)
                         .font(OrbitTheme.mono(11, weight: .semibold))
                         .foregroundStyle(OrbitTheme.textSecondary)
 
@@ -594,11 +599,11 @@ struct OrbitPopoverView: View {
                                 Text("\(group.done)")
                                     .font(OrbitTheme.mono(20, weight: .semibold))
                                     .foregroundStyle(OrbitTheme.textPrimary)
-                                Text("/ \(group.total)")
+                                Text(group.expandedTotalText)
                                     .font(OrbitTheme.mono(12))
                                     .foregroundStyle(OrbitTheme.textSecondary)
                             }
-                            Text("tasks completed")
+                            Text("tasks finished")
                                 .font(OrbitTheme.mono(10))
                                 .foregroundStyle(OrbitTheme.textTimestamp)
                         }
@@ -686,9 +691,15 @@ struct OrbitPopoverView: View {
 
                     Spacer(minLength: 8)
 
-                    Text("\(group.completionPercent)%")
-                        .font(OrbitTheme.mono(10, weight: .semibold))
-                        .foregroundStyle(OrbitTheme.textTimestamp)
+                    if let completionPercent = group.completionPercent {
+                        Text("\(completionPercent)%")
+                            .font(OrbitTheme.mono(10, weight: .semibold))
+                            .foregroundStyle(OrbitTheme.textTimestamp)
+                    } else {
+                        Text("total unknown")
+                            .font(OrbitTheme.mono(9, weight: .semibold))
+                            .foregroundStyle(OrbitTheme.textTimestamp)
+                    }
                 }
 
                 GeometryReader { geo in
@@ -913,42 +924,264 @@ struct OrbitPopoverView: View {
             .padding(.vertical, 2)
     }
 
+    private var updateSection: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                updater.toggleExpanded()
+            } label: {
+                HStack(spacing: 9) {
+                    ZStack {
+                        Circle()
+                            .fill(updateTint.opacity(0.14))
+                            .frame(width: 25, height: 25)
+
+                        if updater.isBusy {
+                            ProgressView()
+                                .controlSize(.mini)
+                                .tint(updateTint)
+                        } else {
+                            Image(systemName: updateIconName)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(updateTint)
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(updateHeadline)
+                            .font(OrbitTheme.mono(10, weight: .semibold))
+                            .foregroundStyle(OrbitTheme.textPrimary)
+                            .lineLimit(1)
+
+                        if let detail = updater.statusDetail {
+                            Text(detail)
+                                .font(OrbitTheme.sans(10))
+                                .foregroundStyle(OrbitTheme.textSecondary)
+                                .lineLimit(updater.isExpanded ? 2 : 1)
+                        }
+                    }
+
+                    Spacer(minLength: 6)
+
+                    if updater.phase == .available && !updater.isExpanded {
+                        Text("VIEW")
+                            .font(OrbitTheme.mono(8, weight: .semibold))
+                            .foregroundStyle(OrbitTheme.accent)
+                            .tracking(0.8)
+                    }
+
+                    Image(systemName: updater.isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(OrbitTheme.textLabel)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+
+            if updater.isExpanded {
+                Rectangle()
+                    .fill(updateTint.opacity(0.14))
+                    .frame(height: 1)
+
+                VStack(alignment: .leading, spacing: 10) {
+                    if let releaseNotes = updater.releaseNotes,
+                       !releaseNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        ScrollView {
+                            Text(markdownReleaseNotes(releaseNotes))
+                                .font(OrbitTheme.sans(11))
+                                .foregroundStyle(OrbitTheme.textSecondary)
+                                .lineSpacing(3)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.trailing, 4)
+                        }
+                        .frame(maxHeight: 175)
+                        .padding(10)
+                        .background(Color.black.opacity(0.16))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                .stroke(Color.white.opacity(0.055), lineWidth: 1)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    } else if let error = updater.releaseNotesError {
+                        HStack(alignment: .top, spacing: 7) {
+                            Image(systemName: "doc.text.magnifyingglass")
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(OrbitTheme.textLabel)
+                            Text(error)
+                                .font(OrbitTheme.sans(10))
+                                .foregroundStyle(OrbitTheme.textSecondary)
+                        }
+                    } else if updater.phase == .available {
+                        Text("Release notes are loading…")
+                            .font(OrbitTheme.sans(10))
+                            .foregroundStyle(OrbitTheme.textLabel)
+                    }
+
+                    if let progress = updater.progress {
+                        VStack(alignment: .leading, spacing: 5) {
+                            GeometryReader { proxy in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(Color.white.opacity(0.07))
+                                    Capsule()
+                                        .fill(updateTint)
+                                        .frame(width: proxy.size.width * min(1, max(0, progress)))
+                                }
+                            }
+                            .frame(height: 4)
+
+                            Text("\(Int((progress * 100).rounded()))%")
+                                .font(OrbitTheme.mono(9))
+                                .foregroundStyle(OrbitTheme.textTimestamp)
+                        }
+                    }
+
+                    updateActions
+                }
+                .padding(10)
+            }
+        }
+        .background(updateTint.opacity(0.065))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(updateTint.opacity(0.20), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var updateActions: some View {
+        switch updater.phase {
+        case .available:
+            if updater.isInformationOnlyUpdate {
+                Button("Open Release Page") {
+                    updater.openInformationOnlyUpdate()
+                }
+                .buttonStyle(OrbitUpdatePrimaryButtonStyle())
+            } else {
+                HStack(spacing: 7) {
+                    Button("Download & Install") {
+                        updater.downloadAndInstallUpdate()
+                    }
+                    .buttonStyle(OrbitUpdatePrimaryButtonStyle())
+
+                    Button("Later") {
+                        updater.remindLater()
+                    }
+                    .buttonStyle(OrbitUpdateGhostButtonStyle())
+                }
+
+                HStack(spacing: 12) {
+                    if updater.releasePageURL != nil {
+                        Button("View release on GitHub ↗") {
+                            updater.openReleasePage()
+                        }
+                        .buttonStyle(.plain)
+                        .font(OrbitTheme.mono(9, weight: .semibold))
+                        .foregroundStyle(OrbitTheme.accent)
+                    }
+
+                    Button("Skip this version") {
+                        updater.skipThisVersion()
+                    }
+                    .buttonStyle(.plain)
+                    .font(OrbitTheme.mono(9))
+                    .foregroundStyle(OrbitTheme.textLabel)
+                }
+            }
+
+        case .readyToInstall:
+            HStack(spacing: 7) {
+                Button("Install & Relaunch") {
+                    updater.installAndRelaunch()
+                }
+                .buttonStyle(OrbitUpdatePrimaryButtonStyle())
+
+                Button("Later") {
+                    updater.remindLater()
+                }
+                .buttonStyle(OrbitUpdateGhostButtonStyle())
+            }
+
+        case .checking, .downloading:
+            Button("Cancel") {
+                updater.cancelCurrentOperation()
+            }
+            .buttonStyle(OrbitUpdateGhostButtonStyle())
+
+        case .installing:
+            Button("Try Quit Again") {
+                updater.retryTerminatingApplication()
+            }
+            .buttonStyle(OrbitUpdateGhostButtonStyle())
+
+        case .upToDate, .failed:
+            Button("Dismiss") {
+                updater.dismissStatus()
+            }
+            .buttonStyle(OrbitUpdateGhostButtonStyle())
+
+        case .idle, .extracting:
+            EmptyView()
+        }
+    }
+
+    private var updateHeadline: String {
+        switch updater.phase {
+        case .idle:
+            return "Software Update"
+        case .checking:
+            return "Checking for updates"
+        case .available:
+            return updater.availableVersion.map { "Orbit \($0) is available" } ?? "Update available"
+        case .downloading:
+            return "Downloading update"
+        case .extracting:
+            return "Verifying update"
+        case .readyToInstall:
+            return "Ready to relaunch"
+        case .installing:
+            return "Installing update"
+        case .upToDate:
+            return "Orbit is up to date"
+        case .failed:
+            return "Update could not be completed"
+        }
+    }
+
+    private var updateIconName: String {
+        switch updater.phase {
+        case .available: return "arrow.down.circle.fill"
+        case .readyToInstall: return "checkmark.circle.fill"
+        case .upToDate: return "checkmark"
+        case .failed: return "exclamationmark"
+        default: return "arrow.triangle.2.circlepath"
+        }
+    }
+
+    private var updateTint: Color {
+        switch updater.phase {
+        case .readyToInstall, .upToDate:
+            return OrbitTheme.success
+        case .failed:
+            return OrbitTheme.danger
+        default:
+            return OrbitTheme.accent
+        }
+    }
+
+    private func markdownReleaseNotes(_ raw: String) -> AttributedString {
+        (try? AttributedString(
+            markdown: raw,
+            options: AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+        )) ?? AttributedString(raw)
+    }
+
     private var footerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let notice = viewModel.availableUpdateNotice {
-                HStack(spacing: 8) {
-                    Text("Update available: \(notice.versionTag)")
-                        .font(OrbitTheme.mono(10, weight: .semibold))
-                        .foregroundStyle(OrbitTheme.accent)
-                        .lineLimit(1)
-
-                    Spacer(minLength: 8)
-
-                    Button("Open") {
-                        viewModel.openAvailableUpdateReleasePage()
-                    }
-                    .buttonStyle(.plain)
-                    .font(OrbitTheme.mono(10, weight: .semibold))
-                    .foregroundStyle(OrbitTheme.textPrimary)
-
-                    Button {
-                        viewModel.dismissAvailableUpdateNotice()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(OrbitTheme.textSecondary)
-                            .frame(width: 16, height: 16)
-                    }
-                    .buttonStyle(.plain)
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(OrbitTheme.accent.opacity(0.12))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .stroke(OrbitTheme.accent.opacity(0.22), lineWidth: 1)
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            if updater.shouldShowStatus {
+                updateSection
             }
 
             HStack(spacing: 10) {

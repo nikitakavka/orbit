@@ -135,6 +135,57 @@ extension OrbitDatabase {
             )
         }
 
+        migrator.registerMigration("v7_array_progress") { db in
+            try db.create(table: "array_progress", ifNotExists: true) { t in
+                t.column("profile_id", .text).notNull()
+                t.column("array_parent_id", .text).notNull()
+                t.column("total", .integer).notNull()
+                t.column("finished", .integer).notNull()
+                t.column("total_is_exact", .integer).notNull().defaults(to: 0)
+                t.column("updated_at", .text).notNull()
+                t.primaryKey(["profile_id", "array_parent_id"])
+            }
+            try db.create(
+                index: "idx_array_progress_updated_at",
+                on: "array_progress",
+                columns: ["updated_at"],
+                ifNotExists: true
+            )
+        }
+
+        migrator.registerMigration("v8_array_progress_source") { db in
+            guard try db.columns(in: "array_progress").allSatisfy({ $0.name != "source" }) else {
+                return
+            }
+            try db.alter(table: "array_progress") { t in
+                t.add(column: "source", .integer).notNull().defaults(to: 0)
+            }
+        }
+
+        migrator.registerMigration("v9_array_progress_provenance") { db in
+            let columns = try db.columns(in: "array_progress").map(\.name)
+            if !columns.contains("total_source") {
+                try db.alter(table: "array_progress") { t in
+                    t.add(column: "total_source", .integer).notNull().defaults(to: 0)
+                }
+            }
+            if !columns.contains("finished_source") {
+                try db.alter(table: "array_progress") { t in
+                    t.add(column: "finished_source", .integer).notNull().defaults(to: 0)
+                }
+            }
+
+            // v8 used 0=queue, 1=batch script, 2=accounting for both
+            // independent facts. Preserve that provenance while splitting it.
+            try db.execute(
+                sql: """
+                UPDATE array_progress
+                SET total_source = CASE source WHEN 2 THEN 3 ELSE source END,
+                    finished_source = CASE source WHEN 2 THEN 2 WHEN 1 THEN 1 ELSE 0 END
+                """
+            )
+        }
+
         try migrator.migrate(dbQueue)
     }
 }

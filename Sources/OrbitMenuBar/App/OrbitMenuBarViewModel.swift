@@ -19,18 +19,28 @@ final class OrbitMenuBarViewModel: ObservableObject {
         let total: Int
         let running: Int
         let pending: Int
+        let totalIsExact: Bool
         let runningChildren: [JobSnapshot]
         let representativeJob: JobSnapshot?
 
         var id: String { parentJobID }
 
         var completion: Double {
-            guard total > 0 else { return 0 }
+            guard totalIsExact, total > 0 else { return 0 }
             return min(1.0, max(0.0, Double(done) / Double(total)))
         }
 
-        var completionPercent: Int {
-            Int((completion * 100).rounded())
+        var completionPercent: Int? {
+            guard totalIsExact else { return nil }
+            return Int((completion * 100).rounded())
+        }
+
+        var progressText: String {
+            totalIsExact ? "\(done)/\(total)" : "\(done)/≥\(total)"
+        }
+
+        var expandedTotalText: String {
+            totalIsExact ? "/ \(total)" : "/ ≥\(total)"
         }
     }
 
@@ -53,11 +63,6 @@ final class OrbitMenuBarViewModel: ObservableObject {
         let severity: Severity
         let sortKey: Int
         let node: NodeInventoryEntry
-    }
-
-    struct UpdateNotice: Equatable {
-        let versionTag: String
-        let releaseURL: URL
     }
 
     @Published private(set) var statuses: [ProfileStatus] = []
@@ -88,16 +93,15 @@ final class OrbitMenuBarViewModel: ObservableObject {
     @Published private(set) var isLoadingNodeInventory: Bool = false
     @Published private(set) var selectedWeeklyUsage: WeeklyUsageSummary?
     @Published private(set) var cpuHourRatePerHour: Double = OrbitAppSettings.cpuHourRate()
-    @Published private(set) var availableUpdateNotice: UpdateNotice?
 
     private let service: OrbitService
-    private let updateChecker: OrbitUpdateChecker
     private var watchTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     private var watchedProfileIDs: Set<UUID> = []
     private var isReloading = false
+    private var hasPendingReload = false
+    private var pendingReloadNeedsRefresh = false
     private var started = false
-    private var isCheckingForUpdates = false
     private var defaultsObserver: NSObjectProtocol?
     private var idleSinceByProfile: [UUID: Date] = [:]
 
@@ -111,16 +115,9 @@ final class OrbitMenuBarViewModel: ObservableObject {
         return formatter
     }()
 
-    init(service: OrbitService, updateChecker: OrbitUpdateChecker = OrbitUpdateChecker()) {
+    init(service: OrbitService) {
         self.service = service
-        self.updateChecker = updateChecker
         self.cpuHourRatePerHour = OrbitAppSettings.cpuHourRate()
-
-        if let currentVersion = updateChecker.currentAppVersion() {
-            availableUpdateNotice = updateChecker.cachedAvailableUpdate(forCurrentVersion: currentVersion).map {
-                UpdateNotice(versionTag: $0.versionTag, releaseURL: $0.releaseURL)
-            }
-        }
 
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
@@ -146,10 +143,15 @@ final class OrbitMenuBarViewModel: ObservableObject {
         service.startLifecycleMonitoring()
         scheduleReload(refresh: false)
         startHeartbeatLoop()
-        checkForUpdates(force: false)
     }
 
     func stop() {
+        Task {
+            await stopAndWait()
+        }
+    }
+
+    func stopAndWait() async {
         started = false
         watchTask?.cancel()
         watchTask = nil
@@ -158,9 +160,7 @@ final class OrbitMenuBarViewModel: ObservableObject {
         heartbeatTask = nil
 
         service.stopLifecycleMonitoring()
-        Task {
-            await service.shutdown()
-        }
+        await service.shutdown()
     }
 
     func refreshNow() {
@@ -353,17 +353,6 @@ final class OrbitMenuBarViewModel: ObservableObject {
         NSWorkspace.shared.open(url)
     }
 
-    func openAvailableUpdateReleasePage() {
-        guard let notice = availableUpdateNotice else { return }
-        NSWorkspace.shared.open(notice.releaseURL)
-    }
-
-    func dismissAvailableUpdateNotice() {
-        guard let notice = availableUpdateNotice else { return }
-        updateChecker.dismiss(versionTag: notice.versionTag)
-        availableUpdateNotice = nil
-    }
-
     func selectJob(_ job: JobSnapshot) {
         selectedJob = job
         loadSelectedJobHistory(job)
@@ -407,26 +396,6 @@ final class OrbitMenuBarViewModel: ObservableObject {
         loadNodeInventory(force: true)
     }
 
-    private func checkForUpdates(force: Bool) {
-        guard !isCheckingForUpdates else { return }
-        guard let currentVersion = updateChecker.currentAppVersion() else { return }
-
-        isCheckingForUpdates = true
-
-        Task { [weak self] in
-            guard let self else { return }
-
-            let update = await self.updateChecker.checkForUpdate(currentVersion: currentVersion, force: force)
-
-            await MainActor.run {
-                self.availableUpdateNotice = update.map {
-                    UpdateNotice(versionTag: $0.versionTag, releaseURL: $0.releaseURL)
-                }
-                self.isCheckingForUpdates = false
-            }
-        }
-    }
-
     private func startWatchLoop() {
         watchTask?.cancel()
 
@@ -434,7 +403,15 @@ final class OrbitMenuBarViewModel: ObservableObject {
             guard let self else { return }
 
             do {
-                try await service.watchAll(iterations: nil) { [weak self] _ in
+                try await service.watchAll(
+                    iterations: nil,
+                    onClusterResourcesUpdated: { [weak self] _ in
+                        guard let self else { return }
+                        Task { @MainActor in
+                            self.scheduleReload(refresh: false)
+                        }
+                    }
+                ) { [weak self] _ in
                     guard let self else { return }
                     Task { @MainActor in
                         self.scheduleReload(refresh: false)
@@ -475,28 +452,37 @@ final class OrbitMenuBarViewModel: ObservableObject {
                 if Task.isCancelled { break }
                 await MainActor.run {
                     self.scheduleReload(refresh: false)
-                    self.checkForUpdates(force: false)
                 }
             }
         }
     }
 
     private func scheduleReload(refresh: Bool) {
-        guard !isReloading else { return }
+        if isReloading {
+            hasPendingReload = true
+            pendingReloadNeedsRefresh = pendingReloadNeedsRefresh || refresh
+            return
+        }
 
+        isReloading = true
         Task {
             await reloadStatuses(refresh: refresh)
         }
     }
 
     private func reloadStatuses(refresh: Bool) async {
-        guard !isReloading else { return }
-        isReloading = true
         if refresh { isRefreshing = true }
 
         defer {
             isReloading = false
             isRefreshing = false
+
+            if hasPendingReload {
+                let pendingRefresh = pendingReloadNeedsRefresh
+                hasPendingReload = false
+                pendingReloadNeedsRefresh = false
+                scheduleReload(refresh: pendingRefresh)
+            }
         }
 
         do {

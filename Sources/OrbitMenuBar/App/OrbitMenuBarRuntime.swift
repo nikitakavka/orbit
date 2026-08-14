@@ -22,8 +22,8 @@ struct OrbitMenuBarRuntime {
         // launches the executable from .build/, where UNUserNotificationCenter.current()
         // crashes with "bundleProxyForCurrentProcess is nil". Keep notifications enabled
         // for packaged app runs, but force the noop engine for unbundled debug runs.
-        let isAppBundle = Bundle.main.bundleURL.pathExtension.lowercased() == "app"
-        let notificationsEnabled = env["ORBIT_ENABLE_NOTIFICATIONS"] != "0" && isAppBundle
+        let notificationsEnabled = env["ORBIT_ENABLE_NOTIFICATIONS"] != "0"
+            && UserNotificationEngine.isAvailable
         let notificationEngine: NotificationEngine = notificationsEnabled
             ? UserNotificationEngine(database: database)
             : NoopNotificationEngine()

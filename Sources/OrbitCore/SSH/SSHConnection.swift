@@ -107,7 +107,7 @@ public actor SSHConnection {
         return alive
     }
 
-    public func run(_ command: String) async throws -> CommandResult {
+    public func run(_ command: String, maxOutputBytes: Int? = nil) async throws -> CommandResult {
         try CommandGuard.validate(command)
 
         if await !checkAlive() {
@@ -134,7 +134,7 @@ public actor SSHConnection {
             executable: "/usr/bin/ssh",
             arguments: args,
             timeoutSeconds: commandTimeoutSeconds,
-            maxOutputBytes: Self.resolvedMaxCommandOutputBytes()
+            maxOutputBytes: maxOutputBytes ?? Self.resolvedMaxCommandOutputBytes()
         )
         let wrapped = CommandResult(
             command: command,

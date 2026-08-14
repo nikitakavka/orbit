@@ -14,6 +14,7 @@ struct OrbitCoreSlurmParserTests {
         #expect(builder.squeueCommand == "squeue --user=alice --json")
         #expect(SlurmCommandBuilder.slurmVersionCommand == "sinfo --version")
         #expect(SlurmCommandBuilder.partitionsCommand == "sinfo -h -o \"%P\"")
+        #expect(try builder.arrayAccountingCommand(arrayJobIds: ["777514", "888000"]) == "sacct --jobs=777514,888000 --allocations --array --json")
         #expect(SlurmCommandBuilder.tmuxCheckCommand == "which tmux")
     }
 
@@ -286,6 +287,60 @@ struct OrbitCoreSlurmParserTests {
     }
 
     @Test
+    func jsonParserUsesSubmitLineAndCountsEveryVisibleNonterminalArrayTask() throws {
+        let json = """
+        {
+          "jobs": [
+            {
+              "job_id": 900,
+              "name": "submitted_array",
+              "partition": "cpu",
+              "job_state": ["PENDING"],
+              "array_job_id": { "set": true, "infinite": false, "number": 900 },
+              "array_task_id": { "set": false, "infinite": false, "number": 0 },
+              "array_task_string": "5-9",
+              "submit_line": "sbatch --array=0-9%2 run.sh"
+            },
+            {
+              "job_id": 901,
+              "name": "submitted_array",
+              "partition": "cpu",
+              "job_state": ["RUNNING"],
+              "array_job_id": { "set": true, "infinite": false, "number": 900 },
+              "array_task_id": { "set": true, "infinite": false, "number": 3 }
+            },
+            {
+              "job_id": 902,
+              "name": "submitted_array",
+              "partition": "cpu",
+              "job_state": ["COMPLETING"],
+              "array_job_id": { "set": true, "infinite": false, "number": 900 },
+              "array_task_id": { "set": true, "infinite": false, "number": 4 }
+            },
+            {
+              "job_id": 903,
+              "name": "submitted_array",
+              "partition": "cpu",
+              "job_state": ["COMPLETED"],
+              "array_job_id": { "set": true, "infinite": false, "number": 900 },
+              "array_task_id": { "set": true, "infinite": false, "number": 2 }
+            }
+          ]
+        }
+        """
+
+        let parent = try JSONSlurmParser()
+            .parseJobs(json, profileId: UUID())
+            .first(where: { $0.id == "900" })
+
+        #expect(parent?.arrayTasksTotal == 10)
+        #expect(parent?.arrayTasksDone == 3)
+        #expect(parent?.arrayTasksTotalIsExact == true)
+        #expect(parent?.arrayTasksTotalSource == .submitLine)
+        #expect(parent?.arraySubmittedTasksTotal == 10)
+    }
+
+    @Test
     func jsonParserTreatsSingleNonArrayJobsAsRegularJobs() throws {
         let json = """
         {
@@ -531,5 +586,106 @@ struct OrbitCoreSlurmParserTests {
         #expect(history.count == 1)
         #expect(history.first?.id == "12345")
         #expect(history.first?.timeLimit == nil)
+    }
+
+    @Test
+    func jsonParserPreservesArrayIdentityInAccountingHistory() throws {
+        let json = """
+        {
+          "jobs": [
+            {
+              "job_id": "788100",
+              "name": "array-task",
+              "state": { "current": ["COMPLETED"], "reason": "None" },
+              "array": {
+                "job_id": 777514,
+                "task_id": { "set": true, "infinite": false, "number": 8 },
+                "task": ""
+              }
+            },
+            {
+              "job_id": "777514_[9-12]",
+              "name": "array-group",
+              "state": { "current": ["PENDING"], "reason": "Resources" },
+              "array": {
+                "job_id": 777514,
+                "task_id": { "set": false, "infinite": false, "number": 0 },
+                "task": "0x1E00"
+              }
+            }
+          ]
+        }
+        """
+
+        let history = try JSONSlurmParser().parseJobHistory(json, profileId: UUID())
+        #expect(history.count == 2)
+        #expect(history.first?.arrayParentID == "777514")
+        #expect(history.first?.arrayTaskID == 8)
+        #expect(history.first?.state == .completed)
+        #expect(history.last?.arrayTaskExpression == "0x1E00")
+    }
+
+    @Test
+    func arrayAccountingCoverageUnionsGroupedAndIndividualTasks() throws {
+        let profileID = UUID()
+        let history = [
+            JobHistorySnapshot(
+                id: "788100",
+                profileId: profileID,
+                name: "array-task",
+                state: .completed,
+                exitCode: "0:0",
+                elapsed: 10,
+                timeLimit: 60,
+                cpuTimeUsed: 10,
+                cpusRequested: 1,
+                maxRSS: nil,
+                memoryRequested: nil,
+                startTime: nil,
+                endTime: nil,
+                arrayParentID: "777514",
+                arrayTaskID: 8
+            ),
+            JobHistorySnapshot(
+                id: "777514_[9-12]",
+                profileId: profileID,
+                name: "array-group",
+                state: .pending,
+                exitCode: nil,
+                elapsed: 0,
+                timeLimit: 60,
+                cpuTimeUsed: 0,
+                cpusRequested: 1,
+                maxRSS: nil,
+                memoryRequested: nil,
+                startTime: nil,
+                endTime: nil,
+                arrayParentID: "777514",
+                arrayTaskID: nil,
+                arrayTaskExpression: "9-12"
+            )
+        ]
+        let path = "/tmp/orbit-test-\(UUID().uuidString).sqlite"
+        let database = try OrbitDatabase(path: path)
+        let profile = ClusterProfile(
+            displayName: "accounting",
+            hostname: "cluster",
+            username: "alice",
+            outputMode: .json
+        )
+        let engine = try PollEngine(
+            profile: profile,
+            connection: SSHConnection(profile: profile),
+            database: database
+        )
+
+        let coverage = engine.accountingCoverage(
+            history: history,
+            requestedParentIDs: ["777514"]
+        )
+
+        #expect(coverage.all["777514"]?.count == 5)
+        #expect(coverage.finished["777514"]?.count == 1)
+        try? FileManager.default.removeItem(atPath: path)
     }
 }

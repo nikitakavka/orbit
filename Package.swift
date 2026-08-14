@@ -12,7 +12,8 @@ let package = Package(
         .executable(name: "orbit-menubar", targets: ["OrbitMenuBar"])
     ],
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0")
+        .package(url: "https://github.com/groue/GRDB.swift.git", from: "7.0.0"),
+        .package(url: "https://github.com/sparkle-project/Sparkle.git", from: "2.9.5")
     ],
     targets: [
         .target(
@@ -26,14 +27,30 @@ let package = Package(
             dependencies: ["OrbitCore"],
             path: "Sources/OrbitCLI"
         ),
+        .target(
+            name: "OrbitMacAppSupport",
+            dependencies: [
+                .product(name: "Sparkle", package: "Sparkle")
+            ]
+        ),
         .executableTarget(
             name: "OrbitMenuBar",
-            dependencies: ["OrbitCore"],
-            path: "Sources/OrbitMenuBar"
+            dependencies: ["OrbitCore", "OrbitMacAppSupport"],
+            path: "Sources/OrbitMenuBar",
+            linkerSettings: [
+                .unsafeFlags([
+                    "-Xlinker", "-rpath",
+                    "-Xlinker", "@executable_path/../Frameworks"
+                ])
+            ]
         ),
         .testTarget(
             name: "OrbitCoreTests",
             dependencies: ["OrbitCore"]
+        ),
+        .testTarget(
+            name: "OrbitMacAppSupportTests",
+            dependencies: ["OrbitMacAppSupport"]
         )
     ]
 )

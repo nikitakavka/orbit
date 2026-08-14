@@ -33,6 +33,14 @@ public enum OrbitCommandCatalog {
             regexPattern: #"^sacct --user=[a-zA-Z0-9._-]+ --starttime=now-24hours --json$"#
         ),
         OrbitAllowlistedCommand(
+            transparencyTemplate: "sacct --jobs={array_job_ids} --allocations --array --json",
+            regexPattern: #"^sacct --jobs=[0-9]+(?:,[0-9]+){0,49} --allocations --array --json$"#
+        ),
+        OrbitAllowlistedCommand(
+            transparencyTemplate: "scontrol write batch_script {array_job_id} -",
+            regexPattern: #"^scontrol write batch_script [0-9]+ -$"#
+        ),
+        OrbitAllowlistedCommand(
             transparencyTemplate: "sacct --user={username} --starttime=now-24hours --format=JobID,JobName,State,Elapsed,Timelimit,CPUTime,MaxRSS,ExitCode --parsable2 --noheader",
             regexPattern: #"^sacct --user=[a-zA-Z0-9._-]+ --starttime=now-24hours --format=JobID,JobName,State,Elapsed,Timelimit,CPUTime,MaxRSS,ExitCode --parsable2 --noheader$"#
         ),

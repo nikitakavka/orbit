@@ -72,9 +72,13 @@ public struct JSONSlurmParser: SlurmParser {
             let rawArrayTaskID = parseSlurmNumber(job["array_task_id"]) ?? parseSlurmNumber(array?["task_id"])
             let arrayTaskID = normalizeArrayTaskID(rawArrayTaskID)
 
-            let rawArrayTaskString = anyToString(job["array_task_string"]) ?? anyToString(array?["task_string"])
+            let rawArrayTaskString = anyToString(job["array_task_string"])
+                ?? anyToString(array?["task_string"])
+                ?? anyToString(array?["task"])
             let arrayTaskString = normalizeArrayTaskString(rawArrayTaskString)
             let hasArrayTaskString = (arrayTaskString != nil)
+            let submittedTaskCount = anyToString(job["submit_line"])
+                .flatMap(SlurmArraySpecificationParser.taskCount(inSubmitLine:))
 
             let taskCount = max(0, anyToInt(array?["task_count"]) ?? 0)
             let taskDone = max(0, anyToInt(array?["task_finished"]) ?? 0)
@@ -89,12 +93,16 @@ public struct JSONSlurmParser: SlurmParser {
 
             // Non-array jobs on some clusters may expose array_job_id=<job_id> and task_count=1.
             // Treat those as regular jobs unless we see explicit array semantics.
-            let isArrayInitial = hasDistinctRoot || arrayTaskID != nil || hasArrayTaskString || taskCount > 1
+            let isArrayInitial = hasDistinctRoot
+                || arrayTaskID != nil
+                || hasArrayTaskString
+                || taskCount > 1
+                || (submittedTaskCount ?? 0) > 1
 
             let normalizedArrayParentID = isArrayInitial ? arrayRootID.map(String.init) : nil
             let normalizedArrayTaskID = isArrayInitial ? arrayTaskID : nil
             let normalizedTaskDone = isArrayInitial ? taskDone : 0
-            let normalizedTaskTotal = isArrayInitial ? taskCount : 0
+            let normalizedTaskTotal = isArrayInitial ? max(taskCount, submittedTaskCount ?? 0) : 0
             let normalizedTaskString = isArrayInitial ? arrayTaskString : nil
 
             let snapshot = JobSnapshot(
@@ -120,6 +128,9 @@ public struct JSONSlurmParser: SlurmParser {
                 arrayTaskID: normalizedArrayTaskID,
                 arrayTasksDone: normalizedTaskDone,
                 arrayTasksTotal: normalizedTaskTotal,
+                arrayTasksTotalIsExact: submittedTaskCount == nil ? nil : true,
+                arrayTasksTotalSource: submittedTaskCount == nil ? nil : .submitLine,
+                arraySubmittedTasksTotal: submittedTaskCount,
                 snapshotTime: Date()
             )
 
@@ -143,48 +154,26 @@ public struct JSONSlurmParser: SlurmParser {
             let rootID = String(arrayRootID)
             guard let parentIndex = indices.first(where: { snapshots[$0].id == rootID }) else { continue }
 
-            // Child tasks (array elements) usually carry array_task_id and are RUNNING/PENDING.
-            let runningCount = indices.filter {
-                parsed[$0].arrayTaskID != nil && snapshots[$0].state == .running
-            }.count
+            // The compressed task expression and explicit child rows can overlap.
+            // Build a union and count every visible nonterminal task, including
+            // completing, suspended, configuring, and unknown states.
+            var activeTaskIDs = parsed[parentIndex].arrayTaskString
+                .flatMap(SlurmArraySpecificationParser.taskIDs(inSpecification:))
+                ?? IndexSet()
 
-            let pendingStats = parsed[parentIndex].arrayTaskString.flatMap(parseArrayTaskStringStats)
-            let pendingFromChildren = indices.filter {
-                parsed[$0].arrayTaskID != nil && snapshots[$0].state == .pending
-            }.count
-
-            let runningTaskIDs = Set(indices.compactMap { parsed[$0].arrayTaskID })
-            let pendingCountRaw = pendingStats?.count ?? pendingFromChildren
-            let overlappingRunningCount = pendingStats.map { stats in
-                runningTaskIDs.filter { stats.contains($0) }.count
-            } ?? 0
-
-            // Some clusters expose task strings that overlap with explicit running child rows.
-            // Treat overlap as running, not pending, to avoid inflated totals for non-zero ranges.
-            let pendingCount = max(0, pendingCountRaw - overlappingRunningCount)
-
-            let activeObservedCount: Int
-            if pendingStats != nil {
-                activeObservedCount = pendingCount + runningTaskIDs.count
-            } else {
-                activeObservedCount = pendingCount + runningCount
+            for index in indices {
+                guard let taskID = parsed[index].arrayTaskID,
+                      !isTerminalQueueState(snapshots[index].state) else { continue }
+                activeTaskIDs.insert(taskID)
             }
 
-            var total = max(
+            let activeObservedCount = activeTaskIDs.count
+            let reportedDone = max(0, snapshots[parentIndex].arrayTasksDone)
+            let total = max(
                 snapshots[parentIndex].arrayTasksTotal,
-                activeObservedCount + max(0, snapshots[parentIndex].arrayTasksDone)
+                activeObservedCount + reportedDone
             )
-
-            if let pendingStats {
-                total = max(total, pendingStats.count)
-            }
-            total = max(total, pendingCount + runningCount)
-
-            var done = max(0, total - pendingCount - runningCount)
-
-            if snapshots[parentIndex].arrayTasksDone > 0 {
-                done = max(done, snapshots[parentIndex].arrayTasksDone)
-            }
+            let done = min(total, max(reportedDone, total - activeObservedCount))
 
             snapshots[parentIndex].isArray = true
             snapshots[parentIndex].arrayTasksTotal = total
@@ -208,6 +197,19 @@ public struct JSONSlurmParser: SlurmParser {
         return jobs.compactMap { job in
             guard let id = anyToString(job["job_id"]), !id.contains(".") else { return nil }
 
+            let array = job["array"] as? [String: Any]
+            let arrayRootID = normalizeArrayRootID(
+                parseSlurmNumber(job["array_job_id"]) ?? anyToInt(array?["job_id"])
+            )
+            let arrayTaskID = normalizeArrayTaskID(
+                parseSlurmNumber(job["array_task_id"]) ?? parseSlurmNumber(array?["task_id"])
+            )
+            let arrayTaskExpression = normalizeArrayTaskString(
+                anyToString(job["array_task_string"])
+                    ?? anyToString(array?["task_string"])
+                    ?? anyToString(array?["task"])
+            )
+
             let elapsed = parseDurationSeconds(job["elapsed"] ?? nested(job, ["time", "elapsed"])) ?? 0
             let limit = parseLimit(job["timelimit"] ?? nested(job, ["time", "limit"]))
             let cpuTimeUsed = parseDurationSeconds(job["cpu_time"] ?? nested(job, ["time", "total", "seconds"])) ?? 0
@@ -226,7 +228,10 @@ public struct JSONSlurmParser: SlurmParser {
                 maxRSS: parseMemoryKB(job["max_rss"]),
                 memoryRequested: parseMemoryKB(job["req_mem"]),
                 startTime: parseDate(job["start_time"]),
-                endTime: parseDate(job["end_time"])
+                endTime: parseDate(job["end_time"]),
+                arrayParentID: arrayRootID.map(String.init),
+                arrayTaskID: arrayTaskID,
+                arrayTaskExpression: arrayTaskExpression
             )
         }
     }
@@ -351,6 +356,10 @@ public struct JSONSlurmParser: SlurmParser {
     private func parseState(_ raw: Any?) -> JobState {
         if let state = raw as? String {
             return JobState.from(slurmState: state)
+        }
+
+        if let state = raw as? [String: Any] {
+            return parseState(state["current"] ?? state["state"])
         }
 
         if let states = raw as? [String], let first = states.first {
@@ -493,32 +502,6 @@ public struct JSONSlurmParser: SlurmParser {
         return Int64(number * multiplier)
     }
 
-    private struct ArrayTaskSegment {
-        let lower: Int
-        let upper: Int
-        let step: Int
-
-        func contains(_ value: Int) -> Bool {
-            guard value >= lower, value <= upper else { return false }
-            return ((value - lower) % step) == 0
-        }
-
-        var count: Int {
-            max(0, ((upper - lower) / step) + 1)
-        }
-    }
-
-    private struct ArrayTaskStringStats {
-        let count: Int
-        let minID: Int?
-        let maxID: Int?
-        let segments: [ArrayTaskSegment]
-
-        func contains(_ value: Int) -> Bool {
-            segments.contains(where: { $0.contains(value) })
-        }
-    }
-
     private func normalizeArrayRootID(_ raw: Int?) -> Int? {
         guard let raw else { return nil }
         guard raw > 0 else { return nil }
@@ -557,60 +540,13 @@ public struct JSONSlurmParser: SlurmParser {
         return anyToInt(value)
     }
 
-    private func parseArrayTaskStringStats(_ raw: String) -> ArrayTaskStringStats? {
-        let cleaned = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .split(separator: "%", maxSplits: 1)
-            .first
-            .map(String.init) ?? ""
-
-        guard !cleaned.isEmpty else { return nil }
-
-        var totalCount = 0
-        var minID: Int?
-        var maxID: Int?
-        var segments: [ArrayTaskSegment] = []
-
-        for token in cleaned.split(separator: ",").map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) }) {
-            guard !token.isEmpty else { continue }
-
-            if token.contains("-") {
-                let rangeParts = token.split(separator: "-", maxSplits: 1).map(String.init)
-                guard rangeParts.count == 2 else { continue }
-
-                let start = Int(rangeParts[0].trimmingCharacters(in: .whitespacesAndNewlines))
-
-                let endAndStep = rangeParts[1].split(separator: ":", maxSplits: 1).map(String.init)
-                let end = Int(endAndStep[0].trimmingCharacters(in: .whitespacesAndNewlines))
-                let stepRaw = (endAndStep.count == 2) ? Int(endAndStep[1].trimmingCharacters(in: .whitespacesAndNewlines)) : nil
-                let step = max(1, stepRaw ?? 1)
-
-                guard let start, let end else { continue }
-
-                let low = min(start, end)
-                let high = max(start, end)
-                let segment = ArrayTaskSegment(lower: low, upper: high, step: step)
-
-                totalCount += segment.count
-                minID = minID.map { min($0, low) } ?? low
-                maxID = maxID.map { max($0, high) } ?? high
-                segments.append(segment)
-                continue
-            }
-
-            if let value = Int(token) {
-                totalCount += 1
-                minID = minID.map { min($0, value) } ?? value
-                maxID = maxID.map { max($0, value) } ?? value
-                segments.append(ArrayTaskSegment(lower: value, upper: value, step: 1))
-            }
+    private func isTerminalQueueState(_ state: JobState) -> Bool {
+        switch state {
+        case .completed, .failed, .cancelled, .timeout, .outOfMemory:
+            return true
+        case .pending, .running, .completing, .unknown:
+            return false
         }
-
-        if totalCount == 0, minID == nil, maxID == nil {
-            return nil
-        }
-
-        return ArrayTaskStringStats(count: totalCount, minID: minID, maxID: maxID, segments: segments)
     }
 
     private func normalizedReason(_ raw: String?) -> String? {

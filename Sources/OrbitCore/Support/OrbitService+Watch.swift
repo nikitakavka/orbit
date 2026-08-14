@@ -7,13 +7,18 @@ extension OrbitService {
         onTick: ((LivePollResult, Int) -> Void)? = nil
     ) async throws {
         let profile = try database.loadProfile(identifier)
-        try await watchLoop(profile: profile, iterations: iterations) { tick in
+        try await watchLoop(
+            profile: profile,
+            iterations: iterations,
+            onClusterResourcesUpdated: nil
+        ) { tick in
             onTick?(tick.result, tick.tick)
         }
     }
 
     public func watchAll(
         iterations: Int? = nil,
+        onClusterResourcesUpdated: ((ClusterProfile) -> Void)? = nil,
         onTick: ((ProfileWatchTick) -> Void)? = nil
     ) async throws {
         let profiles = try database.listProfiles().filter { $0.isActive }
@@ -25,7 +30,12 @@ extension OrbitService {
             for profile in profiles {
                 group.addTask {
                     do {
-                        try await self.watchLoop(profile: profile, iterations: iterations, onTick: onTick)
+                        try await self.watchLoop(
+                            profile: profile,
+                            iterations: iterations,
+                            onClusterResourcesUpdated: onClusterResourcesUpdated,
+                            onTick: onTick
+                        )
                     } catch {
                         // Keep remaining profiles running even if one profile has
                         // invalid config or transient connection issues.
@@ -53,6 +63,7 @@ extension OrbitService {
     private func watchLoop(
         profile: ClusterProfile,
         iterations: Int?,
+        onClusterResourcesUpdated: ((ClusterProfile) -> Void)?,
         onTick: ((ProfileWatchTick) -> Void)?
     ) async throws {
         try validateProfileSupportsJSON(profile)
@@ -97,9 +108,13 @@ extension OrbitService {
             onTick?(ProfileWatchTick(profile: currentProfile, result: live, tick: count))
 
             if extendedTask == nil {
+                let extendedProfile = currentProfile
                 extendedTask = makeExtendedPollTask(
                     engine: engine,
-                    intervalSeconds: currentProfile.extendedPollIntervalSeconds
+                    intervalSeconds: extendedProfile.extendedPollIntervalSeconds,
+                    onClusterResourcesUpdated: {
+                        onClusterResourcesUpdated?(extendedProfile)
+                    }
                 )
             }
 
@@ -121,10 +136,20 @@ extension OrbitService {
         }
     }
 
-    private func makeExtendedPollTask(engine: PollEngine, intervalSeconds: Int) -> Task<Void, Never> {
+    private func makeExtendedPollTask(
+        engine: PollEngine,
+        intervalSeconds: Int,
+        onClusterResourcesUpdated: (() -> Void)?
+    ) -> Task<Void, Never> {
         let intervalNanos = UInt64(max(1, intervalSeconds)) * 1_000_000_000
 
         return Task {
+            // Populate node and CPU capacity immediately on app launch. Later
+            // extended polls retain the configured lower-frequency interval.
+            await engine.runExtendedPoll(
+                onClusterResourcesUpdated: onClusterResourcesUpdated
+            )
+
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(nanoseconds: intervalNanos)
@@ -133,7 +158,9 @@ extension OrbitService {
                 }
 
                 if Task.isCancelled { break }
-                await engine.runExtendedPoll()
+                await engine.runExtendedPoll(
+                    onClusterResourcesUpdated: onClusterResourcesUpdated
+                )
             }
         }
     }

@@ -13,6 +13,17 @@ public struct AuditLogEntry: FetchableRecord, Decodable {
     public let parse_failed: Int
 }
 
+public struct ArrayProgressRecord: Equatable, Sendable {
+    public let profileId: UUID
+    public let parentJobID: String
+    public let total: Int
+    public let finished: Int
+    public let totalIsExact: Bool
+    public let totalSource: ArrayProgressTotalSource
+    public let finishedSource: ArrayProgressFinishedSource
+    public let updatedAt: Date
+}
+
 public struct OrbitStorageStats: Equatable {
     public let fileSizeBytes: Int64
     public let profileCount: Int

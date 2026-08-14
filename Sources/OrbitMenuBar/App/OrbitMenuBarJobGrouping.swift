@@ -33,6 +33,7 @@ enum OrbitMenuBarJobGrouping {
                 total: total,
                 running: summary.running,
                 pending: summary.pending,
+                totalIsExact: summary.totalIsExact,
                 runningChildren: runningChildren,
                 representativeJob: representative
             )
@@ -82,6 +83,7 @@ enum OrbitMenuBarJobGrouping {
                 total: max(1, total),
                 running: running,
                 pending: pending,
+                totalIsExact: false,
                 runningChildren: runningChildren,
                 representativeJob: representative
             )

@@ -7,6 +7,7 @@ public struct ArrayProgressSummary: Equatable {
     public let total: Int
     public let running: Int
     public let pending: Int
+    public let totalIsExact: Bool
 }
 
 public struct ProfileStatus {
@@ -43,7 +44,7 @@ public struct ProfileStatus {
 
         return parents.map { parent in
             let children = liveJobs.filter { $0.arrayParentID == parent.id && $0.id != parent.id }
-            let running = children.filter { $0.state == .running }.count
+            let running = children.filter { $0.state == .running || $0.state == .completing }.count
             let pendingChildren = children.filter { $0.state == .pending }.count
 
             let total = max(parent.arrayTasksTotal, running + pendingChildren + parent.arrayTasksDone)
@@ -57,7 +58,8 @@ public struct ProfileStatus {
                 done: done,
                 total: total,
                 running: running,
-                pending: pending
+                pending: pending,
+                totalIsExact: parent.arrayTasksTotalIsExact == true
             )
         }
         .sorted { lhs, rhs in

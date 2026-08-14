@@ -18,8 +18,13 @@ public final class UserNotificationEngine: NotificationEngine {
         self.database = database
     }
 
+    public static var isAvailable: Bool {
+        Bundle.main.bundleURL.pathExtension.lowercased() == "app"
+    }
+
     public static func requestAuthorization() async -> Bool {
-        await withCheckedContinuation { continuation in
+        guard isAvailable else { return false }
+        return await withCheckedContinuation { continuation in
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
                 continuation.resume(returning: granted)
             }
@@ -27,6 +32,8 @@ public final class UserNotificationEngine: NotificationEngine {
     }
 
     public func process(diff: JobDiff, profile: ClusterProfile) {
+        guard Self.isAvailable else { return }
+
         if profile.notifyOnComplete {
             // Queue-only completion policy:
             // notify when a job/array disappears from squeue (inferred finished),

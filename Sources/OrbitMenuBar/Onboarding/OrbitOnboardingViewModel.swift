@@ -1,7 +1,9 @@
 import Foundation
 import AppKit
+import Combine
 import UserNotifications
 import OrbitCore
+import OrbitMacAppSupport
 
 private func shortOnboardingErrorMessage(_ error: Error) -> String {
     var message = error.localizedDescription
@@ -31,8 +33,14 @@ private struct NetworkPermissionRetryFailed: LocalizedError {
 
 @MainActor
 final class OrbitOnboardingViewModel: ObservableObject {
+    enum SetupMode {
+        case full
+        case existingConfiguration
+    }
+
     enum Step: Int, CaseIterable {
         case welcome
+        case startup
         case cluster
         case sshKey
         case networkPermission
@@ -134,9 +142,14 @@ final class OrbitOnboardingViewModel: ObservableObject {
 
     @Published private(set) var testStatuses: [ConnectionStepID: ConnectionStepStatus]
     @Published private(set) var notificationPermissionState: NotificationPermissionState = .checking
+    @Published private(set) var isRequestingNotificationPermission = false
 
     private let service: OrbitService
+    private let launchAtLoginController: OrbitLaunchAtLoginController
+    private let setupMode: SetupMode
+    private let existingProfile: ClusterProfile?
     private let onFinish: () -> Void
+    private var appSupportObservers: Set<AnyCancellable> = []
     private var testTask: Task<Void, Never>?
     private var testedProfile: ClusterProfile?
     private var didPersistTestedProfile: Bool = false
@@ -144,14 +157,32 @@ final class OrbitOnboardingViewModel: ObservableObject {
     private var hasShownNetworkPermissionGuidance = false
 
     private static let completedKey = "orbit.onboarding.completed"
+    private static let resumeAtStartupKey = "orbit.onboarding.resumeAtStartup"
+    private static let setupVersionKey = "orbit.onboarding.version"
+    private static let currentSetupVersion = 2
 
-    init(service: OrbitService, onFinish: @escaping () -> Void, startAt step: Step = .welcome) {
+    init(
+        service: OrbitService,
+        launchAtLoginController: OrbitLaunchAtLoginController,
+        setupMode: SetupMode = .full,
+        existingProfile: ClusterProfile? = nil,
+        onFinish: @escaping () -> Void,
+        startAt step: Step = .welcome
+    ) {
         self.service = service
+        self.launchAtLoginController = launchAtLoginController
+        self.setupMode = setupMode
+        self.existingProfile = existingProfile
         self.onFinish = onFinish
         self.step = step
         self.username = ""
         self.testStatuses = Self.defaultTestStatuses()
         self.highestReachedStepRaw = step.rawValue
+
+        launchAtLoginController.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &appSupportObservers)
+
         refreshNotificationPermissionStatus()
     }
 
@@ -161,14 +192,40 @@ final class OrbitOnboardingViewModel: ObservableObject {
 
     static func markCompleted() {
         UserDefaults.standard.set(true, forKey: completedKey)
+        markCurrentSetupCompleted()
+    }
+
+    static func isCurrentSetupCompleted() -> Bool {
+        UserDefaults.standard.integer(forKey: setupVersionKey) >= currentSetupVersion
+    }
+
+    static func markCurrentSetupCompleted() {
+        UserDefaults.standard.set(currentSetupVersion, forKey: setupVersionKey)
+        UserDefaults.standard.removeObject(forKey: resumeAtStartupKey)
+    }
+
+    static func initialStepForLaunch() -> Step {
+        guard UserDefaults.standard.bool(forKey: resumeAtStartupKey) else {
+            return .welcome
+        }
+
+        UserDefaults.standard.removeObject(forKey: resumeAtStartupKey)
+        return .startup
+    }
+
+    var isExistingConfigurationSetup: Bool {
+        if case .existingConfiguration = setupMode { return true }
+        return false
     }
 
     var navigationSteps: [Step] {
-        Step.allCases
+        isExistingConfigurationSetup
+            ? [.startup, .notifications, .done]
+            : Step.allCases
     }
 
     func isStepReachableInNavigation(_ target: Step) -> Bool {
-        target.rawValue <= highestReachedStepRaw
+        navigationSteps.contains(target) && target.rawValue <= highestReachedStepRaw
     }
 
     func navigateToStep(_ target: Step) {
@@ -186,8 +243,96 @@ final class OrbitOnboardingViewModel: ObservableObject {
     }
 
     func continueFromWelcome() {
-        step = .cluster
+        step = .startup
         formError = nil
+    }
+
+    var isInstalledInApplications: Bool {
+        launchAtLoginController.isInstalledInApplications
+    }
+
+    var launchAtLoginStatus: OrbitLaunchAtLoginStatus {
+        launchAtLoginController.status
+    }
+
+    var launchAtLoginEnabled: Bool {
+        launchAtLoginController.status == .enabled
+    }
+
+    var launchAtLoginRequiresApproval: Bool {
+        launchAtLoginController.status == .requiresApproval
+    }
+
+    var isChangingLaunchAtLogin: Bool {
+        launchAtLoginController.isChanging
+    }
+
+    var launchAtLoginErrorMessage: String? {
+        launchAtLoginController.errorMessage
+    }
+
+    var installedApplicationDisplayPath: String {
+        let appURL = Bundle.main.bundleURL.standardizedFileURL
+        let homeApplicationsPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Applications", isDirectory: true)
+            .standardizedFileURL.path
+
+        if appURL.path.hasPrefix(homeApplicationsPath + "/") {
+            return "~/Applications/\(appURL.lastPathComponent)"
+        }
+        return "/Applications/\(appURL.lastPathComponent)"
+    }
+
+    var isRunningFromDownloads: Bool {
+        let path = Bundle.main.bundleURL.standardizedFileURL.path.lowercased()
+        return path.contains("/downloads/") || path.contains("/apptranslocation/")
+    }
+
+    func refreshStartupStatus() {
+        launchAtLoginController.refresh()
+    }
+
+    func enableLaunchAtLoginAndContinue() {
+        guard isInstalledInApplications else { return }
+
+        Task {
+            await launchAtLoginController.setEnabled(true)
+            if launchAtLoginController.status == .enabled {
+                continueFromStartup()
+            }
+        }
+    }
+
+    func continueFromStartup() {
+        step = isExistingConfigurationSetup ? .notifications : .cluster
+        if step == .notifications {
+            refreshNotificationPermissionStatus()
+        }
+    }
+
+    func openSystemLoginItemsSettings() {
+        _ = launchAtLoginController.openSystemLoginItemsSettings()
+    }
+
+    func quitAndShowInstallationFolders() {
+        UserDefaults.standard.set(true, forKey: Self.resumeAtStartupKey)
+
+        let appURL = Bundle.main.bundleURL
+        let sourceDirectory: URL
+        if appURL.path.lowercased().contains("/apptranslocation/") {
+            sourceDirectory = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+                ?? FileManager.default.homeDirectoryForCurrentUser
+        } else {
+            sourceDirectory = appURL.deletingLastPathComponent()
+        }
+
+        NSWorkspace.shared.open(sourceDirectory)
+        NSWorkspace.shared.open(URL(fileURLWithPath: "/Applications", isDirectory: true))
+
+        Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            NSApplication.shared.terminate(nil)
+        }
     }
 
     func continueFromCluster() {
@@ -200,8 +345,12 @@ final class OrbitOnboardingViewModel: ObservableObject {
         switch step {
         case .welcome:
             return
+        case .startup:
+            if !isExistingConfigurationSetup {
+                step = .welcome
+            }
         case .cluster:
-            step = .welcome
+            step = .startup
         case .sshKey:
             step = .cluster
         case .networkPermission:
@@ -210,7 +359,7 @@ final class OrbitOnboardingViewModel: ObservableObject {
             cancelTesting()
             step = .sshKey
         case .notifications:
-            step = .testing
+            step = isExistingConfigurationSetup ? .startup : .testing
         case .done:
             return
         }
@@ -283,7 +432,27 @@ final class OrbitOnboardingViewModel: ObservableObject {
         step = .done
     }
 
+    func requestNotificationPermission() {
+        guard UserNotificationEngine.isAvailable else {
+            notificationPermissionState = .unknown
+            return
+        }
+        guard !isRequestingNotificationPermission else { return }
+        isRequestingNotificationPermission = true
+
+        Task {
+            _ = await UserNotificationEngine.requestAuthorization()
+            isRequestingNotificationPermission = false
+            refreshNotificationPermissionStatus()
+        }
+    }
+
     func refreshNotificationPermissionStatus() {
+        guard UserNotificationEngine.isAvailable else {
+            notificationPermissionState = .unknown
+            return
+        }
+
         notificationPermissionState = .checking
 
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
@@ -347,7 +516,10 @@ final class OrbitOnboardingViewModel: ObservableObject {
     }
 
     var clusterDisplayLine: String {
-        "\(resolvedUsername) @ \(hostname.trimmingCharacters(in: .whitespacesAndNewlines))"
+        if isExistingConfigurationSetup, let existingProfile {
+            return "\(existingProfile.username) @ \(existingProfile.displayName)"
+        }
+        return "\(resolvedUsername) @ \(hostname.trimmingCharacters(in: .whitespacesAndNewlines))"
     }
 
     var clusterUser: String { resolvedUsername }
@@ -562,7 +734,11 @@ final class OrbitOnboardingViewModel: ObservableObject {
     }
 
     private func finish() {
-        Self.markCompleted()
+        if isExistingConfigurationSetup {
+            Self.markCurrentSetupCompleted()
+        } else {
+            Self.markCompleted()
+        }
         onFinish()
     }
 

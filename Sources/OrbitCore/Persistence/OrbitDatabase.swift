@@ -5,10 +5,10 @@ public final class OrbitDatabase {
     public let dbQueue: DatabaseQueue
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
-    private let isoFormatter = ISO8601DateFormatter()
+    let isoFormatter = ISO8601DateFormatter()
     private let dbPath: String
     private let auditRetentionDays: Int
-    private let historyRetentionDays: Int
+    let historyRetentionDays: Int
     private let notificationRetentionDays: Int
     private let maxHistoryEntriesPerPoll: Int
     private let maxDatabaseSizeBytes: Int64
@@ -143,6 +143,7 @@ public final class OrbitDatabase {
             try db.execute(sql: "DELETE FROM audit_log WHERE profile_id = ?", arguments: [pid])
             try db.execute(sql: "DELETE FROM notification_state WHERE profile_id = ?", arguments: [pid])
             try db.execute(sql: "DELETE FROM cluster_capabilities WHERE profile_id = ?", arguments: [pid])
+            try db.execute(sql: "DELETE FROM array_progress WHERE profile_id = ?", arguments: [pid])
         }
     }
 

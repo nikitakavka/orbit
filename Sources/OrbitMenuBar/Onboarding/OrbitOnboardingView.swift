@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct OrbitOnboardingView: View {
@@ -21,7 +22,6 @@ struct OrbitOnboardingView: View {
             .padding(.horizontal, 12)
         }
         .preferredColorScheme(.dark)
-        .animation(.easeInOut(duration: 0.2), value: viewModel.step)
     }
 
     private var onboardingWindow: some View {
@@ -29,6 +29,8 @@ struct OrbitOnboardingView: View {
             switch viewModel.step {
             case .welcome:
                 welcomeScreen
+            case .startup:
+                startupScreen
             case .cluster:
                 clusterScreen
             case .sshKey:
@@ -83,6 +85,390 @@ struct OrbitOnboardingView: View {
         .padding(.horizontal, 28)
         .padding(.vertical, 32)
         .frame(maxWidth: .infinity)
+    }
+
+    private var startupScreen: some View {
+        VStack(spacing: 0) {
+            VStack(spacing: 0) {
+                RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    .fill(Palette.orange.opacity(0.10))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 13, style: .continuous)
+                            .stroke(Palette.orange.opacity(0.20), lineWidth: 1)
+                    }
+                    .overlay {
+                        Image(systemName: viewModel.isInstalledInApplications ? "power" : "folder.fill")
+                            .font(.system(size: 19, weight: .medium))
+                            .foregroundStyle(Palette.orange)
+                    }
+                    .frame(width: 52, height: 52)
+                    .padding(.bottom, 18)
+
+                Text(viewModel.isInstalledInApplications ? "STARTUP" : "INSTALLATION")
+                    .font(OrbitTheme.mono(9))
+                    .foregroundStyle(Palette.orange)
+                    .tracking(1.2)
+                    .padding(.bottom, 7)
+
+                Text(startupTitle)
+                    .font(OrbitTheme.mono(17, weight: .medium))
+                    .foregroundStyle(Palette.t1)
+                    .multilineTextAlignment(.center)
+                    .padding(.bottom, 7)
+
+                Text(startupSubtitle)
+                    .font(OrbitTheme.sans(11, weight: .light))
+                    .foregroundStyle(Palette.t3)
+                    .multilineTextAlignment(.center)
+                    .lineSpacing(2.5)
+                    .frame(maxWidth: 250)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 28)
+            .padding(.bottom, 20)
+
+            if viewModel.isExistingConfigurationSetup {
+                startupNoticeCard(
+                    icon: "checkmark",
+                    tint: Palette.green,
+                    title: "Existing setup found",
+                    detail: "Your cluster profiles, settings, and recent metrics will be kept."
+                )
+                .padding(.horizontal, 24)
+                .padding(.bottom, 14)
+            }
+
+            if viewModel.isInstalledInApplications {
+                installedStartupContent
+            } else {
+                outsideApplicationsContent
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            viewModel.refreshStartupStatus()
+        }
+    }
+
+    private var startupTitle: String {
+        if !viewModel.isInstalledInApplications {
+            return "Move Orbit to Applications"
+        }
+        if viewModel.launchAtLoginEnabled {
+            return "Ready when you are"
+        }
+        if viewModel.launchAtLoginRequiresApproval {
+            return "One last approval"
+        }
+        return "Start Orbit automatically?"
+    }
+
+    private var startupSubtitle: String {
+        if !viewModel.isInstalledInApplications {
+            return viewModel.isRunningFromDownloads
+                ? "Orbit is running from Downloads. Move it to Applications to enable launch at login and automatic updates."
+                : "Orbit is running outside Applications. Move it there to enable launch at login and automatic updates."
+        }
+        if viewModel.launchAtLoginEnabled {
+            return "Orbit will appear quietly in your menu bar whenever you log in."
+        }
+        if viewModel.launchAtLoginRequiresApproval {
+            return "Orbit is registered, but macOS needs you to allow it in Login Items."
+        }
+        return "Orbit can appear quietly in your menu bar whenever you log in after restarting your Mac."
+    }
+
+    private var installedStartupContent: some View {
+        VStack(spacing: 0) {
+            startupLocationBadge
+                .padding(.horizontal, 24)
+                .padding(.bottom, 12)
+
+            if viewModel.launchAtLoginEnabled {
+                startupNoticeCard(
+                    icon: "checkmark",
+                    tint: Palette.green,
+                    title: "Launch at Login is on",
+                    detail: "No window will open — Orbit simply returns to the menu bar."
+                )
+                .padding(.horizontal, 24)
+                .padding(.bottom, 18)
+
+                VStack(spacing: 8) {
+                    Button("Continue →") {
+                        viewModel.continueFromStartup()
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+
+                    startupBackButton
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            } else if viewModel.launchAtLoginRequiresApproval {
+                startupNoticeCard(
+                    icon: "exclamationmark",
+                    tint: Palette.orange,
+                    title: "Waiting for macOS",
+                    detail: "Open Login Items and allow Orbit. Return here when you're done."
+                )
+                .padding(.horizontal, 24)
+                .padding(.bottom, 18)
+
+                VStack(spacing: 7) {
+                    Button("Open Login Items →") {
+                        viewModel.openSystemLoginItemsSettings()
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+
+                    Button("Continue for now") {
+                        viewModel.continueFromStartup()
+                    }
+                    .buttonStyle(GhostButtonStyle())
+
+                    startupBackButton
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            } else {
+                VStack(spacing: 8) {
+                    startupFeatureRow(
+                        icon: "power",
+                        title: "Launch automatically",
+                        detail: "Starts quietly when you log in"
+                    )
+                    startupFeatureRow(
+                        icon: "menubar.rectangle",
+                        title: "Menu bar only",
+                        detail: "No window opens at startup"
+                    )
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 14)
+
+                if let error = viewModel.launchAtLoginErrorMessage, !error.isEmpty {
+                    startupNoticeCard(
+                        icon: "exclamationmark",
+                        tint: Palette.red,
+                        title: "Could not enable startup",
+                        detail: error
+                    )
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 14)
+                }
+
+                VStack(spacing: 7) {
+                    Button(viewModel.isChangingLaunchAtLogin ? "Enabling…" : "Enable & continue →") {
+                        viewModel.enableLaunchAtLoginAndContinue()
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                    .disabled(viewModel.isChangingLaunchAtLogin)
+                    .opacity(viewModel.isChangingLaunchAtLogin ? 0.65 : 1)
+
+                    Button("Not now") {
+                        viewModel.continueFromStartup()
+                    }
+                    .buttonStyle(GhostButtonStyle())
+
+                    startupBackButton
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    private var outsideApplicationsContent: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                startupOrbitTile
+
+                HStack(spacing: 3) {
+                    Circle().fill(Palette.orange.opacity(0.28)).frame(width: 3, height: 3)
+                    Rectangle().fill(Palette.orange.opacity(0.28)).frame(width: 14, height: 1)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Palette.orange.opacity(0.7))
+                }
+
+                startupFolderTile(icon: "folder.fill", label: "APPS")
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 15)
+            .background(Palette.t4)
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(Palette.border, lineWidth: 1)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .padding(.horizontal, 24)
+            .padding(.bottom, 12)
+
+            VStack(spacing: 8) {
+                startupFeatureRow(
+                    icon: "power",
+                    title: "Launch automatically",
+                    detail: "Starts quietly when you log in"
+                )
+                startupFeatureRow(
+                    icon: "arrow.down.circle",
+                    title: "Automatic updates",
+                    detail: "Install new versions inside Orbit"
+                )
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 16)
+
+            VStack(spacing: 7) {
+                Button("Open folders & quit") {
+                    viewModel.quitAndShowInstallationFolders()
+                }
+                .buttonStyle(PrimaryButtonStyle())
+
+                Button("Continue without moving") {
+                    viewModel.continueFromStartup()
+                }
+                .buttonStyle(GhostButtonStyle())
+
+                startupBackButton
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
+        }
+    }
+
+    private var startupLocationBadge: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(Palette.green)
+                .frame(width: 5, height: 5)
+
+            Text(viewModel.installedApplicationDisplayPath)
+                .font(OrbitTheme.mono(9))
+                .foregroundStyle(Palette.green.opacity(0.78))
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Text("INSTALLED")
+                .font(OrbitTheme.mono(8, weight: .medium))
+                .foregroundStyle(Palette.t3)
+                .tracking(0.7)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .background(Palette.green.opacity(0.05))
+        .overlay {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(Palette.green.opacity(0.13), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    }
+
+    private func startupFeatureRow(icon: String, title: String, detail: String) -> some View {
+        HStack(spacing: 11) {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Palette.orange.opacity(0.08))
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Palette.orange.opacity(0.85))
+                }
+                .frame(width: 28, height: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(OrbitTheme.mono(10, weight: .medium))
+                    .foregroundStyle(Palette.t1)
+
+                Text(detail)
+                    .font(OrbitTheme.sans(10, weight: .light))
+                    .foregroundStyle(Palette.t3)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
+        .background(Palette.t4)
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Palette.border, lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func startupNoticeCard(icon: String, tint: Color, title: String, detail: String) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Circle()
+                .fill(tint.opacity(0.13))
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(tint)
+                }
+                .frame(width: 24, height: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(OrbitTheme.mono(10, weight: .medium))
+                    .foregroundStyle(Palette.t1)
+
+                Text(detail)
+                    .font(OrbitTheme.sans(10, weight: .light))
+                    .foregroundStyle(Palette.t3)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(11)
+        .background(tint.opacity(0.055))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(tint.opacity(0.15), lineWidth: 1)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private var startupOrbitTile: some View {
+        VStack(spacing: 5) {
+            OrbitMark(size: 22, animated: false)
+
+            Text("ORBIT")
+                .font(OrbitTheme.mono(8, weight: .medium))
+                .foregroundStyle(Palette.t3)
+                .tracking(0.8)
+        }
+        .frame(width: 58, height: 48)
+        .background(Palette.orange.opacity(0.055))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func startupFolderTile(icon: String, label: String) -> some View {
+        VStack(spacing: 5) {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(Palette.orange)
+
+            Text(label)
+                .font(OrbitTheme.mono(8, weight: .medium))
+                .foregroundStyle(Palette.t3)
+                .tracking(0.8)
+        }
+        .frame(width: 58, height: 48)
+        .background(Palette.orange.opacity(0.055))
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var startupBackButton: some View {
+        if !viewModel.isExistingConfigurationSetup {
+            Button("← Back") {
+                viewModel.back()
+            }
+            .buttonStyle(GhostButtonStyle())
+        }
     }
 
     private var clusterScreen: some View {
@@ -465,7 +851,8 @@ struct OrbitOnboardingView: View {
                 permissionStatusRow(granted: permissionGranted)
 
                 VStack(spacing: 6) {
-                    if permissionGranted {
+                    switch viewModel.notificationPermissionState {
+                    case .granted:
                         Button("Continue →") {
                             viewModel.continueFromNotificationPermission()
                         }
@@ -475,9 +862,34 @@ struct OrbitOnboardingView: View {
                             viewModel.back()
                         }
                         .buttonStyle(GhostButtonStyle())
-                    } else {
-                        Button("Open System Settings →") {
+
+                    case .notDetermined:
+                        Button(viewModel.isRequestingNotificationPermission ? "Requesting…" : "Allow notifications →") {
+                            viewModel.requestNotificationPermission()
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+                        .disabled(viewModel.isRequestingNotificationPermission)
+                        .opacity(viewModel.isRequestingNotificationPermission ? 0.65 : 1)
+
+                        Button("Skip for now") {
+                            viewModel.skipNotificationPermissionStep()
+                        }
+                        .buttonStyle(GhostButtonStyle())
+
+                    case .denied:
+                        Button("Open Notification Settings →") {
                             viewModel.openSystemNotificationSettings()
+                        }
+                        .buttonStyle(PrimaryButtonStyle())
+
+                        Button("Continue without notifications") {
+                            viewModel.skipNotificationPermissionStep()
+                        }
+                        .buttonStyle(GhostButtonStyle())
+
+                    case .checking, .unknown:
+                        Button("Check permission again") {
+                            viewModel.refreshNotificationPermissionStatus()
                         }
                         .buttonStyle(PrimaryButtonStyle())
 
@@ -548,12 +960,16 @@ struct OrbitOnboardingView: View {
             .frame(width: 56, height: 56)
             .padding(.bottom, 20)
 
-            Text("You're in orbit")
+            Text(viewModel.isExistingConfigurationSetup ? "Orbit is ready" : "You're in orbit")
                 .font(OrbitTheme.mono(17, weight: .medium))
                 .foregroundStyle(Palette.t1)
                 .padding(.bottom, 6)
 
-            Text("Orbit is now watching your cluster from the menu bar. It will notify you when jobs finish or hit their walltime.")
+            Text(
+                viewModel.isExistingConfigurationSetup
+                    ? "Your existing clusters and recent metrics are ready in the redesigned Orbit."
+                    : "Orbit is now watching your cluster from the menu bar. It will notify you when jobs finish or hit their walltime."
+            )
                 .font(OrbitTheme.sans(11, weight: .light))
                 .foregroundStyle(Palette.t3)
                 .multilineTextAlignment(.center)
@@ -792,30 +1208,60 @@ private struct SpinnerGlyph: View {
 }
 
 private struct OrbitMark: View {
-    private let orbitSpeed: CGFloat = 42
+    private static let designSize: CGFloat = 512
+    private static let ringWidth: CGFloat = 380
+    private static let ringHeight: CGFloat = 140
+    private static let ringStrokeWidth: CGFloat = 28
+    private static let cutStrokeWidth: CGFloat = 18
+    private static let coreDiameter: CGFloat = 60
+    private static let declaredPathLength: CGFloat = 976
+    private static let cutLength: CGFloat = 108
+    private static let gapLength: CGFloat = 380
+    private static let animationDuration: TimeInterval = 9
+
+    let size: CGFloat
+    let animated: Bool
+    @State private var animationStartedAt = Date()
+
+    init(size: CGFloat = 72, animated: Bool = true) {
+        self.size = size
+        self.animated = animated
+    }
 
     var body: some View {
-        TimelineView(.animation) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animated)) { timeline in
             GeometryReader { geo in
                 let side = min(geo.size.width, geo.size.height)
-                let scale = side / 512.0
+                let scale = side / Self.designSize
                 let ringRect = CGRect(
-                    x: (geo.size.width - (420.0 * scale)) / 2.0,
-                    y: (geo.size.height - (156.0 * scale)) / 2.0,
-                    width: 420.0 * scale,
-                    height: 156.0 * scale
+                    x: (geo.size.width - (Self.ringWidth * scale)) / 2.0,
+                    y: (geo.size.height - (Self.ringHeight * scale)) / 2.0,
+                    width: Self.ringWidth * scale,
+                    height: Self.ringHeight * scale
                 )
 
-                let dashOn = 118.0 * scale
-                let dashOff = 400.0 * scale
-                let orbitPhase = -CGFloat(timeline.date.timeIntervalSinceReferenceDate) * orbitSpeed * scale
+                // SVG's pathLength=976 scales the 108/380 dash pattern onto the
+                // ellipse. Converting those values to the real perimeter keeps
+                // two cuts exactly opposite and prevents a visible seam.
+                let perimeter = ellipsePerimeter(
+                    radiusX: ringRect.width / 2.0,
+                    radiusY: ringRect.height / 2.0
+                )
+                let pathUnit = perimeter / Self.declaredPathLength
+                let dashOn = Self.cutLength * pathUnit
+                let dashOff = Self.gapLength * pathUnit
+                let elapsed = max(0, timeline.date.timeIntervalSince(animationStartedAt))
+                let progress = animated
+                    ? elapsed.truncatingRemainder(dividingBy: Self.animationDuration) / Self.animationDuration
+                    : 0
+                let orbitPhase = -CGFloat(progress) * (dashOn + dashOff)
 
                 ZStack {
                     ZStack {
                         Path { path in
                             path.addEllipse(in: ringRect)
                         }
-                        .stroke(Palette.orange, lineWidth: 32.0 * scale)
+                        .stroke(Palette.orange, lineWidth: Self.ringStrokeWidth * scale)
 
                         Path { path in
                             path.addEllipse(in: ringRect)
@@ -823,7 +1269,7 @@ private struct OrbitMark: View {
                         .stroke(
                             Palette.surface,
                             style: StrokeStyle(
-                                lineWidth: 20.0 * scale,
+                                lineWidth: Self.cutStrokeWidth * scale,
                                 lineCap: .round,
                                 dash: [dashOn, dashOff],
                                 dashPhase: orbitPhase
@@ -834,10 +1280,20 @@ private struct OrbitMark: View {
 
                     Circle()
                         .fill(Palette.orange)
-                        .frame(width: 68.0 * scale, height: 68.0 * scale)
+                        .frame(
+                            width: Self.coreDiameter * scale,
+                            height: Self.coreDiameter * scale
+                        )
                 }
             }
         }
-        .frame(width: 72, height: 72)
+        .frame(width: size, height: size)
+    }
+
+    private func ellipsePerimeter(radiusX: CGFloat, radiusY: CGFloat) -> CGFloat {
+        // Ramanujan's second approximation is effectively exact at this scale.
+        let sum = radiusX + radiusY
+        let h = pow((radiusX - radiusY) / sum, 2)
+        return .pi * sum * (1 + ((3 * h) / (10 + sqrt(4 - (3 * h)))))
     }
 }

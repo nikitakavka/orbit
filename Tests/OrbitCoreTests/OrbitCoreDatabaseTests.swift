@@ -526,4 +526,66 @@ struct OrbitCoreDatabaseTests {
 
         try? FileManager.default.removeItem(atPath: path)
     }
+
+    @Test
+    func databaseArrayProgressTracksIndependentTotalAndFinishedProvenance() throws {
+        let path = "/tmp/orbit-test-\(UUID().uuidString).sqlite"
+        let db = try OrbitDatabase(path: path)
+        let profileID = UUID()
+
+        _ = try db.mergeArrayProgress(
+            profileId: profileID,
+            parentJobID: "777514",
+            total: 88,
+            finished: 0,
+            totalIsExact: false
+        )
+        _ = try db.mergeArrayProgress(
+            profileId: profileID,
+            parentJobID: "777514",
+            total: 96,
+            finished: 8,
+            totalIsExact: true,
+            totalSource: .batchScript,
+            finishedSource: .inferredFromQueue
+        )
+        _ = try db.mergeArrayProgress(
+            profileId: profileID,
+            parentJobID: "777514",
+            total: 80,
+            finished: 3,
+            totalIsExact: false
+        )
+
+        _ = try db.mergeArrayProgress(
+            profileId: profileID,
+            parentJobID: "777514",
+            total: 96,
+            finished: 12,
+            totalIsExact: true,
+            totalSource: .batchScript,
+            finishedSource: .accounting
+        )
+        _ = try db.mergeArrayProgress(
+            profileId: profileID,
+            parentJobID: "777514",
+            total: 96,
+            finished: 3,
+            totalIsExact: true,
+            totalSource: .batchScript,
+            finishedSource: .accounting
+        )
+
+        let record = try db.arrayProgressRecords(
+            profileId: profileID,
+            parentJobIDs: ["777514"]
+        )["777514"]
+        #expect(record?.total == 96)
+        #expect(record?.finished == 12)
+        #expect(record?.totalIsExact == true)
+        #expect(record?.totalSource == .batchScript)
+        #expect(record?.finishedSource == .accounting)
+
+        try? FileManager.default.removeItem(atPath: path)
+    }
 }

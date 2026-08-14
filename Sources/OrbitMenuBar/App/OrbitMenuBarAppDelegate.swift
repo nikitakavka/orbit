@@ -1,6 +1,7 @@
 import AppKit
 import SwiftUI
 import OrbitCore
+import OrbitMacAppSupport
 
 @MainActor
 final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
@@ -8,10 +9,16 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
     private var viewModel: OrbitMenuBarViewModel?
 
     private var statusItem: NSStatusItem?
+    private var statusIconTimer: Timer?
+    private var terminationTask: Task<Void, Never>?
+    private var isPreparingToTerminate = false
+    private let statusIconAnimationStartedAt = ProcessInfo.processInfo.systemUptime
     private let popover = NSPopover()
     private var settingsWindow: NSWindow?
     private var settingsViewModel: OrbitSettingsViewModel?
-    private let presentation = OrbitMenuBarPresentationModel()
+    private let launchAtLoginController: OrbitLaunchAtLoginController
+    private let updaterController: OrbitUpdaterController
+    private let presentation: OrbitMenuBarPresentationModel
 
     private lazy var statusMenu: NSMenu = {
         let menu = NSMenu()
@@ -24,6 +31,11 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
         settingsItem.target = self
         menu.addItem(settingsItem)
 
+        let updateItem = NSMenuItem(title: "Check for Updates…", action: #selector(checkForUpdatesFromStatusMenu(_:)), keyEquivalent: "")
+        updateItem.target = self
+        updateItem.tag = 1001
+        menu.addItem(updateItem)
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(title: "Quit Orbit", action: #selector(quitFromStatusMenu(_:)), keyEquivalent: "q")
@@ -34,7 +46,15 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
     }()
 
     override init() {
+        let updaterController = OrbitUpdaterController()
+        self.launchAtLoginController = OrbitLaunchAtLoginController()
+        self.updaterController = updaterController
+        self.presentation = OrbitMenuBarPresentationModel(updaterController: updaterController)
         super.init()
+
+        updaterController.onRequestPresentation = { [weak self] in
+            self?.showPopoverIfPossible()
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -47,23 +67,63 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        guard let runtime, let viewModel else { return }
+        guard let viewModel else { return }
 
         configurePopover(viewModel: viewModel)
         configureStatusItem()
 
-        if runtime.notificationsEnabled {
-            Task {
-                _ = await UserNotificationEngine.requestAuthorization()
-            }
-        }
-
         viewModel.start()
         maybeShowOnboardingIfNeeded()
+
+        if CommandLine.arguments.contains("--check-for-updates") ||
+            CommandLine.arguments.contains("--test-automatic-update") {
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 750_000_000)
+                if CommandLine.arguments.contains("--test-automatic-update") {
+                    self?.updaterController.checkForUpdatesForIntegrationTesting()
+                } else {
+                    self?.updaterController.checkForUpdates()
+                }
+            }
+        } else if let delay = delayedUpdateCheckSeconds() {
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                self?.updaterController.checkForUpdates()
+            }
+        }
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let viewModel else { return .terminateNow }
+        guard !isPreparingToTerminate else { return .terminateLater }
+
+        isPreparingToTerminate = true
+        statusIconTimer?.invalidate()
+        statusIconTimer = nil
+
+        terminationTask = Task {
+            await viewModel.stopAndWait()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        viewModel?.stop()
+        statusIconTimer?.invalidate()
+        statusIconTimer = nil
+        if !isPreparingToTerminate {
+            viewModel?.stop()
+        }
+    }
+
+    private func delayedUpdateCheckSeconds() -> Double? {
+        let prefix = "--check-for-updates-after="
+        guard let argument = CommandLine.arguments.first(where: { $0.hasPrefix(prefix) }),
+              let seconds = Double(argument.dropFirst(prefix.count)),
+              seconds >= 0 else {
+            return nil
+        }
+        return seconds
     }
 
     private func configurePopover(viewModel: OrbitMenuBarViewModel) {
@@ -88,38 +148,43 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
 
         if let button = item.button {
             button.title = ""
-            button.image = makeStatusBarIcon()
             button.imagePosition = .imageOnly
+            button.imageScaling = .scaleNone
             button.target = self
             button.action = #selector(togglePopover(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         statusItem = item
+        updateStatusBarIcon()
+        startStatusBarIconAnimationIfNeeded()
     }
 
-    private func makeStatusBarIcon() -> NSImage {
-        let size = NSSize(width: 22, height: 22)
-        let image = NSImage(size: size, flipped: false) { rect in
-            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+    private func startStatusBarIconAnimationIfNeeded() {
+        guard !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { return }
 
-            context.setStrokeColor(NSColor.black.cgColor)
-            context.setFillColor(NSColor.black.cgColor)
-            context.setLineWidth(3.0)
+        let timer = Timer(
+            timeInterval: 1.0 / OrbitStatusBarIcon.framesPerSecond,
+            target: self,
+            selector: #selector(updateStatusBarIconFrame(_:)),
+            userInfo: nil,
+            repeats: true
+        )
+        RunLoop.main.add(timer, forMode: .common)
+        statusIconTimer = timer
+    }
 
-            context.saveGState()
-            context.translateBy(x: rect.midX, y: rect.midY)
-            context.rotate(by: CGFloat(-25.0 * .pi / 180.0))
-            context.strokeEllipse(in: CGRect(x: -10.2, y: -4.9, width: 20.4, height: 9.8))
-            context.restoreGState()
+    private func updateStatusBarIcon() {
+        let elapsed = max(0, ProcessInfo.processInfo.systemUptime - statusIconAnimationStartedAt)
+        let progress = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+            ? 0
+            : elapsed.truncatingRemainder(dividingBy: OrbitStatusBarIcon.animationDuration)
+                / OrbitStatusBarIcon.animationDuration
+        statusItem?.button?.image = OrbitStatusBarIcon.image(progress: progress)
+    }
 
-            context.fillEllipse(in: CGRect(x: rect.midX - 3.8, y: rect.midY - 3.8, width: 7.6, height: 7.6))
-            return true
-        }
-
-        image.isTemplate = true
-        image.size = size
-        return image
+    @objc private func updateStatusBarIconFrame(_ timer: Timer) {
+        updateStatusBarIcon()
     }
 
     private func openSettingsWindow() {
@@ -134,7 +199,11 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let vm = OrbitSettingsViewModel(service: runtime.service)
+        let vm = OrbitSettingsViewModel(
+            service: runtime.service,
+            launchAtLoginController: launchAtLoginController,
+            updaterController: updaterController
+        )
         vm.reload()
 
         let root = OrbitSettingsView(viewModel: vm)
@@ -155,37 +224,58 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func maybeShowOnboardingIfNeeded() {
-        guard !OrbitOnboardingViewModel.isCompleted() else { return }
         guard let runtime else { return }
 
         let profiles = (try? runtime.service.listProfiles()) ?? []
-        guard profiles.isEmpty else {
-            OrbitOnboardingViewModel.markCompleted()
-            return
+        if profiles.isEmpty {
+            guard !OrbitOnboardingViewModel.isCompleted() else { return }
+            showOnboardingInPopover(startAtCluster: false)
+        } else {
+            guard !OrbitOnboardingViewModel.isCurrentSetupCompleted() else { return }
+            showOnboardingInPopover(
+                startAtCluster: false,
+                setupMode: .existingConfiguration,
+                existingProfile: profiles.first
+            )
         }
-
-        showOnboardingInPopover(startAtCluster: false)
     }
 
-    private func showOnboardingInPopover(startAtCluster: Bool) {
+    private func showOnboardingInPopover(
+        startAtCluster: Bool,
+        setupMode: OrbitOnboardingViewModel.SetupMode = .full,
+        existingProfile: ClusterProfile? = nil
+    ) {
         guard let runtime else { return }
 
         if let existing = presentation.onboardingViewModel {
-            if startAtCluster {
+            if startAtCluster && !existing.isExistingConfigurationSetup {
                 existing.step = .cluster
             }
             showPopoverIfPossible()
             return
         }
 
+        let launchStep = OrbitOnboardingViewModel.initialStepForLaunch()
+        let initialStep: OrbitOnboardingViewModel.Step
+        if startAtCluster {
+            initialStep = .cluster
+        } else if case .existingConfiguration = setupMode {
+            initialStep = .startup
+        } else {
+            initialStep = launchStep
+        }
+
         let vm = OrbitOnboardingViewModel(
             service: runtime.service,
+            launchAtLoginController: launchAtLoginController,
+            setupMode: setupMode,
+            existingProfile: existingProfile,
             onFinish: { [weak self] in
                 guard let self else { return }
                 self.presentation.onboardingViewModel = nil
                 self.viewModel?.refreshNow()
             },
-            startAt: startAtCluster ? .cluster : .welcome
+            startAt: initialStep
         )
 
         presentation.onboardingViewModel = vm
@@ -230,6 +320,7 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
         popover.performClose(nil)
 
         guard let statusItem else { return }
+        statusMenu.item(withTag: 1001)?.isEnabled = updaterController.canCheckForUpdates
         statusItem.menu = statusMenu
         button.performClick(nil)
         statusItem.menu = nil
@@ -241,6 +332,10 @@ final class OrbitMenuBarAppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func openSettingsFromStatusMenu(_ sender: Any?) {
         openSettingsWindow()
+    }
+
+    @objc private func checkForUpdatesFromStatusMenu(_ sender: Any?) {
+        updaterController.checkForUpdates()
     }
 
     @objc private func quitFromStatusMenu(_ sender: Any?) {

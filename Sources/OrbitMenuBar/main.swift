@@ -1,5 +1,51 @@
 import Foundation
 import AppKit
+import OrbitMacAppSupport
+
+@MainActor
+func runLaunchAtLoginIntegrationTest() async -> Int32 {
+    let controller = OrbitLaunchAtLoginController()
+
+    guard controller.isInstalledInApplications else {
+        fputs("launch-at-login test failed: copy the test app to Applications first\n", stderr)
+        return 1
+    }
+
+    await controller.setEnabled(true)
+    let registeredStatus = controller.status
+    let registrationSucceeded = registeredStatus == .enabled || registeredStatus == .requiresApproval
+    let registrationError = controller.errorMessage
+
+    await controller.setEnabled(false)
+    let cleanupSucceeded = controller.status == .notRegistered
+
+    guard registrationSucceeded, cleanupSucceeded else {
+        let reason = registrationError ?? controller.errorMessage ?? "unexpected ServiceManagement status"
+        fputs("launch-at-login test failed: \(reason)\n", stderr)
+        return 1
+    }
+
+    let statusText = registeredStatus == .enabled ? "enabled" : "registered; approval required"
+    print("launch-at-login integration test: ok (\(statusText), cleanup=ok)")
+    return 0
+}
+
+@MainActor
+func runOnboardingStartupCapture(outputPath: String) async -> Int32 {
+    do {
+        let app = NSApplication.shared
+        let runner = try OrbitOnboardingCaptureRunner(
+            outputURL: URL(fileURLWithPath: outputPath)
+        )
+        app.delegate = runner
+        app.setActivationPolicy(.prohibited)
+        app.run()
+        return runner.exitCode
+    } catch {
+        fputs("onboarding capture failed: \(error.localizedDescription)\n", stderr)
+        return 1
+    }
+}
 
 @MainActor
 func runUICapture(outputPath: String?) async -> Int32 {
@@ -37,6 +83,21 @@ func runSmokeTest() async -> Int32 {
         fputs("orbit-menubar smoke test failed: \(error.localizedDescription)\n", stderr)
         return 1
     }
+}
+
+if CommandLine.arguments.contains("--test-launch-at-login") {
+    let code = await runLaunchAtLoginIntegrationTest()
+    exit(code)
+}
+
+if let captureIndex = CommandLine.arguments.firstIndex(of: "--capture-onboarding-startup") {
+    let pathIndex = captureIndex + 1
+    guard pathIndex < CommandLine.arguments.count else {
+        fputs("--capture-onboarding-startup requires an output PNG path\n", stderr)
+        exit(2)
+    }
+    let code = await runOnboardingStartupCapture(outputPath: CommandLine.arguments[pathIndex])
+    exit(code)
 }
 
 if let captureIndex = CommandLine.arguments.firstIndex(of: "--capture-ui") {

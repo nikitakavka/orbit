@@ -22,12 +22,15 @@ Orbit is built for lightweight, local monitoring of user-level SLURM metrics:
 
 - First-run onboarding (cluster + SSH setup)
 - Live polling and watch mode
+- Accounting-first array progress with submission-line and batch-script fallbacks
 - Stale-data fallback when polling fails
 - Job details with efficiency metrics (when history is available)
 - Cluster overview and node load view
 - Per-node GPU inventory (capacity and, when available, used GPUs from GRES)
 - Local SQLite persistence with retention + size guardrails
 - Command transparency list and allowlisted execution
+- Optional launch at login using the native macOS Login Item API
+- Signed in-app updates with release notes and explicit download approval
 
 ## Screenshots
 
@@ -87,14 +90,25 @@ You can run Orbit without building from source:
 This creates `dist/Orbit.app` with:
 - proper app bundle structure (`Info.plist`, `MacOS`, `Resources`)
 - generated `AppIcon.icns`
+- embedded `Sparkle.framework`
 - `LSUIElement=true` (menu bar app behavior)
 
+To enable signed in-app updates in a packaged build, supply `SPARKLE_PUBLIC_ED_KEY`. Release and appcast instructions are in [`docs/releasing.md`](docs/releasing.md).
+
+## macOS feature integration test
+
+```bash
+./scripts/test-macos-app-features.sh
+```
+
+This uses a temporary app and signing key to exercise real Login Item registration and a complete signed Sparkle update. It does not access Keychain and removes its temporary files afterward.
 
 ## Quick start
 
-1. Launch `Orbit.app` (or run `orbit-menubar` when developing from source)
+1. Move `Orbit.app` to `/Applications` and launch it (or run `orbit-menubar` when developing from source)
 2. Complete onboarding (host, username, SSH key)
 3. Run connection test
+4. Optionally enable **Launch Orbit at login** under **Settings → General**
 
 ## CLI quick reference
 

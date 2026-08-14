@@ -1,7 +1,9 @@
 import Foundation
 import AppKit
+import Combine
 import UserNotifications
 import OrbitCore
+import OrbitMacAppSupport
 
 @MainActor
 final class OrbitSettingsViewModel: ObservableObject {
@@ -62,6 +64,8 @@ final class OrbitSettingsViewModel: ObservableObject {
     @Published private(set) var systemNotificationStatusText: String = "Checking…"
     @Published private(set) var systemNotificationStatusHint: String = ""
     @Published private(set) var systemNotificationsAllowed: Bool = false
+    @Published private(set) var systemNotificationsNotDetermined: Bool = false
+    @Published private(set) var isRequestingSystemNotifications: Bool = false
 
     @Published private(set) var auditEntries: [AuditLogEntry] = []
     @Published var auditLimit: Int = 120
@@ -69,16 +73,42 @@ final class OrbitSettingsViewModel: ObservableObject {
     let commandTransparencyList: [String] = OrbitCommandCatalog.transparencyTemplates
 
     private let service: OrbitService
+    private let launchAtLoginController: OrbitLaunchAtLoginController
+    private let updaterController: OrbitUpdaterController
+    private var appSupportObservers: Set<AnyCancellable> = []
 
-    init(service: OrbitService) {
+    convenience init(service: OrbitService) {
+        self.init(
+            service: service,
+            launchAtLoginController: OrbitLaunchAtLoginController(),
+            updaterController: OrbitUpdaterController()
+        )
+    }
+
+    init(
+        service: OrbitService,
+        launchAtLoginController: OrbitLaunchAtLoginController,
+        updaterController: OrbitUpdaterController
+    ) {
         self.service = service
+        self.launchAtLoginController = launchAtLoginController
+        self.updaterController = updaterController
         self.cpuHourRateText = Self.rateText(for: OrbitAppSettings.cpuHourRate())
         self.maxCommandOutputMBText = String(OrbitAppSettings.maxCommandOutputMB())
         self.auditEnabled = OrbitAppSettings.auditEnabled()
+
+        launchAtLoginController.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &appSupportObservers)
+        updaterController.objectWillChange
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &appSupportObservers)
+
         refreshSystemNotificationAuthorizationStatus()
     }
 
     func reload() {
+        launchAtLoginController.refresh()
         refreshSystemNotificationAuthorizationStatus()
 
         do {
@@ -247,6 +277,62 @@ final class OrbitSettingsViewModel: ObservableObject {
         }
     }
 
+    var launchAtLoginEnabled: Bool {
+        launchAtLoginController.isRegistered
+    }
+
+    var launchAtLoginCanChange: Bool {
+        launchAtLoginController.canChangeRegistration
+    }
+
+    var launchAtLoginStatusTitle: String {
+        launchAtLoginController.statusTitle
+    }
+
+    var launchAtLoginStatusHint: String {
+        launchAtLoginController.statusHint
+    }
+
+    var launchAtLoginNeedsApproval: Bool {
+        launchAtLoginController.status == .requiresApproval
+    }
+
+    func setLaunchAtLoginEnabled(_ enabled: Bool) {
+        Task {
+            await launchAtLoginController.setEnabled(enabled)
+        }
+    }
+
+    func openSystemLoginItemsSettings() {
+        if !launchAtLoginController.openSystemLoginItemsSettings() {
+            message = "Could not open macOS Login Items settings."
+        }
+    }
+
+    var updaterAvailable: Bool {
+        updaterController.isAvailable
+    }
+
+    var updaterCanCheckForUpdates: Bool {
+        updaterController.canCheckForUpdates
+    }
+
+    var updaterUnavailableReason: String? {
+        updaterController.unavailableReason
+    }
+
+    var automaticallyChecksForUpdates: Bool {
+        updaterController.automaticallyChecksForUpdates
+    }
+
+    func checkForUpdates() {
+        updaterController.checkForUpdates()
+    }
+
+    func setAutomaticallyChecksForUpdates(_ enabled: Bool) {
+        updaterController.setAutomaticallyChecksForUpdates(enabled)
+    }
+
     func saveCPUHourRate() {
         let trimmed = cpuHourRateText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let value = Double(trimmed), value >= 0 else {
@@ -300,6 +386,14 @@ final class OrbitSettingsViewModel: ObservableObject {
     }
 
     func refreshSystemNotificationAuthorizationStatus() {
+        guard UserNotificationEngine.isAvailable else {
+            systemNotificationsAllowed = false
+            systemNotificationsNotDetermined = false
+            systemNotificationStatusText = "Unavailable"
+            systemNotificationStatusHint = "System notifications are available in the packaged Orbit.app build."
+            return
+        }
+
         UNUserNotificationCenter.current().getNotificationSettings { [weak self] settings in
             guard let self else { return }
 
@@ -307,22 +401,38 @@ final class OrbitSettingsViewModel: ObservableObject {
                 switch settings.authorizationStatus {
                 case .authorized, .provisional, .ephemeral:
                     self.systemNotificationsAllowed = true
+                    self.systemNotificationsNotDetermined = false
                     self.systemNotificationStatusText = "Allowed"
                     self.systemNotificationStatusHint = "Orbit can deliver notifications on this Mac."
                 case .denied:
                     self.systemNotificationsAllowed = false
+                    self.systemNotificationsNotDetermined = false
                     self.systemNotificationStatusText = "Blocked"
                     self.systemNotificationStatusHint = "Enable Orbit in System Settings → Notifications."
                 case .notDetermined:
                     self.systemNotificationsAllowed = false
+                    self.systemNotificationsNotDetermined = true
                     self.systemNotificationStatusText = "Not requested"
-                    self.systemNotificationStatusHint = "Orbit will request permission when notifications are first needed."
+                    self.systemNotificationStatusHint = "Allow notifications to receive job completion, failure, and walltime alerts."
                 @unknown default:
                     self.systemNotificationsAllowed = false
+                    self.systemNotificationsNotDetermined = false
                     self.systemNotificationStatusText = "Unknown"
                     self.systemNotificationStatusHint = "Could not determine notification permission state."
                 }
             }
+        }
+    }
+
+    func requestSystemNotificationAuthorization() {
+        guard UserNotificationEngine.isAvailable else { return }
+        guard !isRequestingSystemNotifications else { return }
+        isRequestingSystemNotifications = true
+
+        Task {
+            _ = await UserNotificationEngine.requestAuthorization()
+            isRequestingSystemNotifications = false
+            refreshSystemNotificationAuthorizationStatus()
         }
     }
 

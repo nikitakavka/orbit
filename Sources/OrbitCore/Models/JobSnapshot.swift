@@ -1,5 +1,18 @@
 import Foundation
 
+public enum ArrayProgressTotalSource: Int, Codable, Equatable, Sendable {
+    case observedQueue = 0
+    case batchScript = 1
+    case submitLine = 2
+    case accounting = 3
+}
+
+public enum ArrayProgressFinishedSource: Int, Codable, Equatable, Sendable {
+    case observedQueue = 0
+    case inferredFromQueue = 1
+    case accounting = 2
+}
+
 public struct JobSnapshot: Codable, Identifiable, Equatable {
     public let id: String
     public let profileId: UUID
@@ -23,6 +36,9 @@ public struct JobSnapshot: Codable, Identifiable, Equatable {
     public var arrayTaskID: Int? = nil
     public var arrayTasksDone: Int
     public var arrayTasksTotal: Int
+    public var arrayTasksTotalIsExact: Bool? = nil
+    public var arrayTasksTotalSource: ArrayProgressTotalSource? = nil
+    public var arraySubmittedTasksTotal: Int? = nil
     public var snapshotTime: Date
 }
 
@@ -40,6 +56,9 @@ public struct JobHistorySnapshot: Codable, Identifiable, Equatable {
     public var memoryRequested: Int64?
     public var startTime: Date?
     public var endTime: Date?
+    public var arrayParentID: String? = nil
+    public var arrayTaskID: Int? = nil
+    public var arrayTaskExpression: String? = nil
 
     public var cpuEfficiency: Double? {
         guard cpuTimeUsed > 0, elapsed > 0, cpusRequested > 0 else { return nil }

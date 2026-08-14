@@ -2,6 +2,97 @@ import SwiftUI
 import OrbitCore
 
 extension OrbitSettingsView {
+    var generalTab: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                organicSection("Startup") {
+                    HStack(alignment: .top, spacing: 14) {
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Launch Orbit at login")
+                                .font(OrbitTheme.sans(13, weight: .semibold))
+                                .foregroundStyle(OrbitTheme.textPrimary)
+
+                            Text("Start Orbit quietly in the menu bar after you log in or restart your Mac.")
+                                .font(OrbitTheme.sans(11))
+                                .foregroundStyle(OrbitTheme.textSecondary)
+                        }
+
+                        Spacer(minLength: 20)
+
+                        Toggle(
+                            "",
+                            isOn: Binding(
+                                get: { viewModel.launchAtLoginEnabled },
+                                set: { viewModel.setLaunchAtLoginEnabled($0) }
+                            )
+                        )
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .disabled(!viewModel.launchAtLoginCanChange)
+                    }
+
+                    HStack(spacing: 8) {
+                        Image(systemName: viewModel.launchAtLoginNeedsApproval ? "exclamationmark.triangle.fill" : "power.circle.fill")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(viewModel.launchAtLoginNeedsApproval ? OrbitTheme.warning : OrbitTheme.accent)
+
+                        Text(viewModel.launchAtLoginStatusTitle)
+                            .font(OrbitTheme.sans(11, weight: .semibold))
+                            .foregroundStyle(OrbitTheme.textSecondary)
+                    }
+
+                    Text(viewModel.launchAtLoginStatusHint)
+                        .font(OrbitTheme.sans(11))
+                        .foregroundStyle(OrbitTheme.textTimestamp)
+
+                    if viewModel.launchAtLoginNeedsApproval {
+                        Button("Open macOS Login Items") {
+                            viewModel.openSystemLoginItemsSettings()
+                        }
+                        .buttonStyle(OrganicGhostButtonStyle(tint: OrbitTheme.accent))
+                    }
+                }
+
+                organicSection("Software Updates") {
+                    if viewModel.updaterAvailable {
+                        VStack(alignment: .leading, spacing: 10) {
+                            organicToggle(
+                                "Automatically check for updates",
+                                isOn: Binding(
+                                    get: { viewModel.automaticallyChecksForUpdates },
+                                    set: { viewModel.setAutomaticallyChecksForUpdates($0) }
+                                )
+                            )
+
+                            Text("Orbit only downloads an update after you choose Download & Install. Every ZIP is verified with an EdDSA signature before it is opened.")
+                                .font(OrbitTheme.sans(11))
+                                .foregroundStyle(OrbitTheme.textTimestamp)
+                        }
+
+                        Button("Check for Updates…") {
+                            viewModel.checkForUpdates()
+                        }
+                        .buttonStyle(OrganicGhostButtonStyle(tint: OrbitTheme.accent))
+                        .disabled(!viewModel.updaterCanCheckForUpdates)
+                    } else {
+                        HStack(alignment: .top, spacing: 8) {
+                            Image(systemName: "info.circle.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(OrbitTheme.textTimestamp)
+                                .padding(.top, 2)
+
+                            Text(viewModel.updaterUnavailableReason ?? "The updater is unavailable in this build.")
+                                .font(OrbitTheme.sans(11))
+                                .foregroundStyle(OrbitTheme.textSecondary)
+                        }
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .background(panelCard(strong: true))
+    }
+
     var clustersTab: some View {
         HStack(spacing: 14) {
             profilesPanel
@@ -181,7 +272,13 @@ extension OrbitSettingsView {
                                         .foregroundStyle(OrbitTheme.textTimestamp)
                                 }
 
-                                if !viewModel.systemNotificationsAllowed {
+                                if viewModel.systemNotificationsNotDetermined {
+                                    Button(viewModel.isRequestingSystemNotifications ? "Requesting…" : "Allow Notifications") {
+                                        viewModel.requestSystemNotificationAuthorization()
+                                    }
+                                    .buttonStyle(OrganicGhostButtonStyle(tint: OrbitTheme.accent))
+                                    .disabled(viewModel.isRequestingSystemNotifications)
+                                } else if !viewModel.systemNotificationsAllowed {
                                     Button("Open macOS Notification Settings") {
                                         viewModel.openSystemNotificationSettings()
                                     }

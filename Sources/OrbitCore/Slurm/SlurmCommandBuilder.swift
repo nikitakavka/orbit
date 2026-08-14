@@ -67,6 +67,23 @@ public struct SlurmCommandBuilder {
         return "squeue --start --job=\(jobId) --noheader -o \"%S\""
     }
 
+    public func batchScriptCommand(arrayJobId: String) throws -> String {
+        guard arrayJobId.allSatisfy(\.isNumber), !arrayJobId.isEmpty else {
+            throw SlurmCommandBuilderError.invalidJobID
+        }
+        return "scontrol write batch_script \(arrayJobId) -"
+    }
+
+    public func arrayAccountingCommand(arrayJobIds: [String]) throws -> String {
+        let uniqueIDs = Array(Set(arrayJobIds)).sorted()
+        guard !uniqueIDs.isEmpty,
+              uniqueIDs.count <= 50,
+              uniqueIDs.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) else {
+            throw SlurmCommandBuilderError.invalidJobID
+        }
+        return "sacct --jobs=\(uniqueIDs.joined(separator: ",")) --allocations --array --json"
+    }
+
     public static func isValidUsername(_ value: String) -> Bool {
         value.range(of: #"^[a-zA-Z0-9._-]+$"#, options: .regularExpression) != nil
     }
