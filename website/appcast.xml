@@ -6,6 +6,17 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     <channel>
         <title>Orbit</title>
         <item>
+            <title>1.1.2</title>
+            <pubDate>Fri, 14 Aug 2026 19:19:57 +0200</pubDate>
+            <link>https://github.com/nikitakavka/orbit/releases/tag/v1.1.2</link>
+            <sparkle:version>112</sparkle:version>
+            <sparkle:shortVersionString>1.1.2</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion>
+            <sparkle:hardwareRequirements>arm64</sparkle:hardwareRequirements>
+            <sparkle:releaseNotesLink sparkle:edSignature="UOsninAtW+oOMr77tjc4VFxicqM6I3CgFqLS+9r7aifrUzIwkwXpC7u2K54+apYnxd6Ai+oWbkEZZo+Zxg2cCQ==" sparkle:length="692">https://nikitakavka.github.io/orbit/Orbit.app.md</sparkle:releaseNotesLink>
+            <enclosure url="https://github.com/nikitakavka/orbit/releases/download/v1.1.2/Orbit.app.zip" length="5289966" type="application/octet-stream" sparkle:edSignature="zWdNv0JRlKgiFlgH7gJ8F1oXrB9PvdGHvKI53GnYxyE0mXH+UkzGsX6UuwGrpVCgHKZ2kf41ddVKFvkmf1IRCA=="/>
+        </item>
+        <item>
             <title>1.1.1</title>
             <pubDate>Fri, 14 Aug 2026 19:04:02 +0200</pubDate>
             <link>https://github.com/nikitakavka/orbit/releases/tag/v1.1.1</link>
@@ -30,6 +41,6 @@ IMPORTANT: This file was signed by Sparkle. Any modifications to this file requi
     </channel>
 </rss>
 <!-- sparkle-signatures:
-edSignature: 5W864Th9vYADW5wTvyUAIE1c6x9IuXOU8TYyE2c7qkZZjgUBRQp7UM+r6AbbWxwWeSGZbsAljYvp1qSmyK/gBw==
-length: 2440
+edSignature: 72/FcoWl1ymZDJynvxd0ba9iXKpseWwywbZUp6gToqVEAI3aVySdhUNEiftmhrzVGx2jquNZv04gPRbqpQSvDQ==
+length: 3445
 -->
