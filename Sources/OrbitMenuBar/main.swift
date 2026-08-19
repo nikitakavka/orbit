@@ -87,7 +87,7 @@ func runSmokeTest() async -> Int32 {
 
 if CommandLine.arguments.contains("--test-installation-folder-quit") {
     OrbitOnboardingViewModel.openInstallationFoldersAndExit()
-    RunLoop.main.run()
+    try? await Task.sleep(nanoseconds: 5 * 1_000_000_000)
     exit(1)
 }
 
