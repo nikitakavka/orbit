@@ -1,30 +1,21 @@
 <!-- sparkle-sign-warning:
 IMPORTANT: This file was signed by Sparkle. Any modifications to this file requires updating signatures in appcasts that reference this file! This will involve re-running generate_appcast or sign_update.
 -->
-# Orbit 1.1.3
+# Orbit 1.1.4
 
-Orbit 1.1.3 adds signed in-app updates, Launch at Login, and accounting-backed Slurm array progress.
+Orbit 1.1.4 contains an urgent safety fix for Slurm accounting polling.
 
-## Updates and macOS integration
+## Critical `sacct` resource-safety fix
 
-- Adds Sparkle 2 with signed feeds, release notes, and update archives.
-- Requires explicit approval before downloading an update.
-- Links update prompts to the corresponding GitHub release.
-- Checks for updates every 12 hours by default; automatic checks can be disabled in Settings.
-- Adds optional Launch at Login support.
-- Warns when Orbit is running outside `/Applications` or `~/Applications`, with a working **Open folders & quit** action.
+- Replaces broad `sacct --json` history requests with allocation-only, restricted `--parsable2` output over a two-hour window.
+- Prevents overlapping Slurm queries across Orbit, OrbitPreview, and CLI processes with a shared per-user lock on the remote host.
+- Enforces a remote 15-second timeout with a 2-second forced-termination grace period, so accounting processes are cleaned up even if the local SSH process exits.
+- Limits accounting output to 16 MiB and other Slurm output to 64 MiB.
+- Reduces job-ID accounting batches and adds exponential backoff after failed accounting polls.
+- Gives each Orbit process its own SSH control socket and shortens stale control-master persistence.
 
-## Slurm array monitoring
+These safeguards prevent a pathological Slurm accounting response from exhausting a remote user's cgroup and stalling SSH sessions.
 
-- Uses `sacct` as the primary source for array totals and finished-task counts.
-- Falls back to `sbatch --array` or the batch script's `#SBATCH --array` directive when accounting is unavailable.
-- Supports grouped accounting records, hexadecimal task bitmaps, and nested state values returned by Slurm's JSON API.
-- Tracks total and finished-task provenance independently while keeping progress monotonic.
+## Updating
 
-## Interface
-
-- Updates the menu bar presentation, onboarding flow, settings, status icon, and project website.
-
-## Installation
-
-Orbit 1.0.1 does not include the new update framework, so this release must be installed manually. Existing cluster profiles, SSH-key paths, settings, history, and metrics are retained. Future releases can be installed from within Orbit.
+Orbit checks the signed update feed automatically and will show an update prompt. You can also install immediately with **Settings → General → Check for Updates…**.
