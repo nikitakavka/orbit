@@ -16,6 +16,7 @@ public struct SlurmCommandBuilder {
     public static let slurmVersionCommand = "sinfo --version"
     public static let partitionsCommand = "sinfo -h -o \"%P\""
     public static let tmuxCheckCommand = "which tmux"
+    public static let accountingFields = "JobIDRaw,JobName,State,ExitCode,Elapsed,Timelimit,CPUTime,ReqCPUS,MaxRSS,ReqMem,Start,End"
 
     public let mode: SlurmOutputMode
     public let username: String
@@ -36,12 +37,9 @@ public struct SlurmCommandBuilder {
     }
 
     public var sacctCommand: String {
-        switch mode {
-        case .json, .unknown:
-            return "sacct --user=\(username) --starttime=now-24hours --json"
-        case .legacy:
-            return "sacct --user=\(username) --starttime=now-24hours --format=JobID,JobName,State,Elapsed,Timelimit,CPUTime,MaxRSS,ExitCode --parsable2 --noheader"
-        }
+        // `sacct --json` can construct a multi-gigabyte response before writing any
+        // output. Restrict both the time range and selected allocation-only fields.
+        "sacct -X --user=\(username) --starttime=now-2hours --noheader --parsable2 --format=\(Self.accountingFields)"
     }
 
     public var sshareCommand: String {
@@ -77,11 +75,11 @@ public struct SlurmCommandBuilder {
     public func arrayAccountingCommand(arrayJobIds: [String]) throws -> String {
         let uniqueIDs = Array(Set(arrayJobIds)).sorted()
         guard !uniqueIDs.isEmpty,
-              uniqueIDs.count <= 50,
+              uniqueIDs.count <= 20,
               uniqueIDs.allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) else {
             throw SlurmCommandBuilderError.invalidJobID
         }
-        return "sacct --jobs=\(uniqueIDs.joined(separator: ",")) --allocations --array --json"
+        return "sacct -X --jobs=\(uniqueIDs.joined(separator: ",")) --array --noheader --parsable2 --format=\(Self.accountingFields)"
     }
 
     public static func isValidUsername(_ value: String) -> Bool {

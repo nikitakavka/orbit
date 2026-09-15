@@ -162,6 +162,8 @@ swift run orbit watch --all
 
 - Uses system OpenSSH (`/usr/bin/ssh`)
 - Command execution is allowlisted and validated
+- Remote commands have a hard timeout; Slurm queries share a per-user remote single-flight lock
+- Accounting uses bounded, allocation-only `sacct --parsable2` output rather than unbounded JSON
 - `BatchMode=yes` is enforced for SSH calls
 - Data is stored locally (SQLite)
 - Audit logging is optional and disabled by default

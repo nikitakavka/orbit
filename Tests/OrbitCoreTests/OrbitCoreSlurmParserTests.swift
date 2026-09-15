@@ -14,7 +14,8 @@ struct OrbitCoreSlurmParserTests {
         #expect(builder.squeueCommand == "squeue --user=alice --json")
         #expect(SlurmCommandBuilder.slurmVersionCommand == "sinfo --version")
         #expect(SlurmCommandBuilder.partitionsCommand == "sinfo -h -o \"%P\"")
-        #expect(try builder.arrayAccountingCommand(arrayJobIds: ["777514", "888000"]) == "sacct --jobs=777514,888000 --allocations --array --json")
+        #expect(builder.sacctCommand == "sacct -X --user=alice --starttime=now-2hours --noheader --parsable2 --format=\(SlurmCommandBuilder.accountingFields)")
+        #expect(try builder.arrayAccountingCommand(arrayJobIds: ["777514", "888000"]) == "sacct -X --jobs=777514,888000 --array --noheader --parsable2 --format=\(SlurmCommandBuilder.accountingFields)")
         #expect(SlurmCommandBuilder.tmuxCheckCommand == "which tmux")
     }
 
@@ -623,6 +624,31 @@ struct OrbitCoreSlurmParserTests {
         #expect(history.first?.arrayTaskID == 8)
         #expect(history.first?.state == .completed)
         #expect(history.last?.arrayTaskExpression == "0x1E00")
+    }
+
+    @Test
+    func parsableSacctParserReadsBoundedAllocationRecords() throws {
+        let output = """
+        12345|main|COMPLETED|0:0|01:02:03|02:00:00|02:04:06|2|1.5G|512Mc|2026-03-01T10:00:00|2026-03-01T11:02:03|
+        12345.batch|batch|COMPLETED|0:0|01:02:00||02:04:00|2|1G|512Mc|2026-03-01T10:00:00|2026-03-01T11:02:00|
+        777514_8|array|OUT_OF_MEMORY+|1:0|1-02:03:04|UNLIMITED|03:00:00|4|2048K|2Gn|2026-03-01T10:00:00|Unknown|
+        777514_[9-12]|array group|PENDING|0:0|00:00|01:00:00|00:00|1|||Unknown|Unknown|
+        """
+
+        let history = try ParsableSacctParser().parseJobHistory(output, profileId: UUID())
+
+        #expect(history.count == 3)
+        #expect(history[0].id == "12345")
+        #expect(history[0].elapsed == 3723)
+        #expect(history[0].cpuTimeUsed == 7446)
+        #expect(history[0].maxRSS == 1_572_864)
+        #expect(history[0].memoryRequested == 1_048_576)
+        #expect(history[1].state == .outOfMemory)
+        #expect(history[1].elapsed == 93_784)
+        #expect(history[1].arrayParentID == "777514")
+        #expect(history[1].arrayTaskID == 8)
+        #expect(history[1].timeLimit == nil)
+        #expect(history[2].arrayTaskExpression == "9-12")
     }
 
     @Test

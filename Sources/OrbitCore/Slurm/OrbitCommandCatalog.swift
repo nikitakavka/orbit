@@ -29,20 +29,16 @@ public enum OrbitCommandCatalog {
             regexPattern: #"^squeue --user=[a-zA-Z0-9._-]+ -o "%.18i %.9P %.8j %.8u %.2t %.10M %.10L %.6D %R"$"#
         ),
         OrbitAllowlistedCommand(
-            transparencyTemplate: "sacct --user={username} --starttime=now-24hours --json",
-            regexPattern: #"^sacct --user=[a-zA-Z0-9._-]+ --starttime=now-24hours --json$"#
+            transparencyTemplate: "sacct -X --user={username} --starttime=now-2hours --noheader --parsable2 --format=JobIDRaw,JobName,State,ExitCode,Elapsed,Timelimit,CPUTime,ReqCPUS,MaxRSS,ReqMem,Start,End",
+            regexPattern: #"^sacct -X --user=[a-zA-Z0-9._-]+ --starttime=now-2hours --noheader --parsable2 --format=JobIDRaw,JobName,State,ExitCode,Elapsed,Timelimit,CPUTime,ReqCPUS,MaxRSS,ReqMem,Start,End$"#
         ),
         OrbitAllowlistedCommand(
-            transparencyTemplate: "sacct --jobs={array_job_ids} --allocations --array --json",
-            regexPattern: #"^sacct --jobs=[0-9]+(?:,[0-9]+){0,49} --allocations --array --json$"#
+            transparencyTemplate: "sacct -X --jobs={array_job_ids} --array --noheader --parsable2 --format=JobIDRaw,JobName,State,ExitCode,Elapsed,Timelimit,CPUTime,ReqCPUS,MaxRSS,ReqMem,Start,End",
+            regexPattern: #"^sacct -X --jobs=[0-9]+(?:,[0-9]+){0,19} --array --noheader --parsable2 --format=JobIDRaw,JobName,State,ExitCode,Elapsed,Timelimit,CPUTime,ReqCPUS,MaxRSS,ReqMem,Start,End$"#
         ),
         OrbitAllowlistedCommand(
             transparencyTemplate: "scontrol write batch_script {array_job_id} -",
             regexPattern: #"^scontrol write batch_script [0-9]+ -$"#
-        ),
-        OrbitAllowlistedCommand(
-            transparencyTemplate: "sacct --user={username} --starttime=now-24hours --format=JobID,JobName,State,Elapsed,Timelimit,CPUTime,MaxRSS,ExitCode --parsable2 --noheader",
-            regexPattern: #"^sacct --user=[a-zA-Z0-9._-]+ --starttime=now-24hours --format=JobID,JobName,State,Elapsed,Timelimit,CPUTime,MaxRSS,ExitCode --parsable2 --noheader$"#
         ),
         OrbitAllowlistedCommand(
             transparencyTemplate: "squeue --start --job={job_id} --noheader -o \"%S\"",

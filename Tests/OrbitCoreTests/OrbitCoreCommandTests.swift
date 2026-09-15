@@ -47,7 +47,8 @@ struct OrbitCoreCommandTests {
         try CommandGuard.validate("squeue --user=alice --json")
         try CommandGuard.validate("sinfo --version")
         try CommandGuard.validate("scontrol write batch_script 777514 -")
-        try CommandGuard.validate("sacct --jobs=777514,888000 --allocations --array --json")
+        try CommandGuard.validate("sacct -X --user=alice --starttime=now-2hours --noheader --parsable2 --format=\(SlurmCommandBuilder.accountingFields)")
+        try CommandGuard.validate("sacct -X --jobs=777514,888000 --array --noheader --parsable2 --format=\(SlurmCommandBuilder.accountingFields)")
 
         var rejected = false
         do {
@@ -56,6 +57,23 @@ struct OrbitCoreCommandTests {
             rejected = true
         }
         #expect(rejected)
+
+        var rejectedUnsafeAccounting = false
+        do {
+            try CommandGuard.validate("sacct --user=alice --starttime=now-24hours --json")
+        } catch {
+            rejectedUnsafeAccounting = true
+        }
+        #expect(rejectedUnsafeAccounting)
+    }
+
+    @Test
+    func sshCommandsHaveRemoteTimeoutAndSlurmSingleFlightLock() {
+        let slurm = SSHConnection.protectedRemoteCommand(for: "squeue --user=alice --json")
+        #expect(slurm == "flock -n -E 75 \"$HOME/.orbit-slurm-query.lock\" timeout -k 2s 15s squeue --user=alice --json")
+
+        let utility = SSHConnection.protectedRemoteCommand(for: "which tmux")
+        #expect(utility == "timeout -k 2s 15s which tmux")
     }
 
     @Test

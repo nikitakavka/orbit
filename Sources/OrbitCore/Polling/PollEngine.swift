@@ -21,6 +21,7 @@ public final class PollEngine {
 
     private let commandBuilder: SlurmCommandBuilder
     private let jsonParser = JSONSlurmParser()
+    private let sacctParser = ParsableSacctParser()
 
     private struct ArrayFallbackRetry {
         var failures: Int
@@ -37,11 +38,15 @@ public final class PollEngine {
     private var arrayFallbackRetries: [String: ArrayFallbackRetry] = [:]
     private var arraysWithoutScriptMetadata: Set<String> = []
     private var lastUnavailableAccountingProbeAt: Date?
+    private var accountingFailures = 0
+    private var nextAccountingAttemptAt = Date.distantPast
     private var isExtendedPollInFlight = false
 
     private let maxEstimatedStartFetchesPerPoll = 5
     private let unavailableAccountingRetryInterval: TimeInterval = 60 * 60
     private let maxBatchScriptOutputBytes = 256 * 1024
+    private let maxAccountingOutputBytes = 16 * 1024 * 1024
+    private let maxArrayJobIDsPerAccountingQuery = 20
 
     public init(
         profile: ClusterProfile,
@@ -162,15 +167,28 @@ public final class PollEngine {
         }
 
         // A previous failure is not permanent: cluster accounting can be
-        // enabled later, so probe once per app session and then hourly.
-        if shouldProbeAccounting(cachedAvailable: cachedSacctAvailability) {
-            _ = await runSacctPoll()
+        // enabled later, so probe once per app session and then hourly. Generic
+        // failures use exponential backoff so terminal events cannot create a
+        // rapid retry loop.
+        guard shouldProbeAccounting(cachedAvailable: cachedSacctAvailability) else {
+            if !cachedSacctAvailability {
+                _ = await runArrayMetadataFallback(for: currentArrayParents())
+            }
+            return
         }
 
-        if (try? database.isSacctAvailable(profileId: profile.id)) != false {
-            _ = await runArrayAccountingPoll()
-        } else {
+        var accountingSucceeded = await runSacctPoll()
+        if accountingSucceeded,
+           (try? database.isSacctAvailable(profileId: profile.id)) != false {
+            accountingSucceeded = await runArrayAccountingPoll()
+        } else if (try? database.isSacctAvailable(profileId: profile.id)) == false {
             _ = await runArrayMetadataFallback(for: currentArrayParents())
+        }
+
+        if accountingSucceeded {
+            recordAccountingSuccess()
+        } else {
+            recordAccountingFailure()
         }
     }
 
@@ -314,7 +332,10 @@ public final class PollEngine {
 
     @discardableResult
     private func runSacctPoll() async -> Bool {
-        let commandResult = await runLogged(command: commandBuilder.sacctCommand)
+        let commandResult = await runLogged(
+            command: commandBuilder.sacctCommand,
+            maxOutputBytes: maxAccountingOutputBytes
+        )
 
         switch commandResult {
         case .failure(let error):
@@ -339,7 +360,7 @@ public final class PollEngine {
             }
 
             do {
-                let parsed = try jsonParser.parseJobHistory(result.stdout, profileId: profile.id)
+                let parsed = try sacctParser.parseJobHistory(result.stdout, profileId: profile.id)
                 do {
                     try database.saveHistory(parsed, profileId: profile.id)
                     return true
@@ -370,7 +391,7 @@ public final class PollEngine {
         var accountingSucceeded = true
         var accountingDisabled = false
 
-        for parentIDBatch in parentByID.keys.sorted().chunked(maxCount: 50) {
+        for parentIDBatch in parentByID.keys.sorted().chunked(maxCount: maxArrayJobIDsPerAccountingQuery) {
             let command: String
             do {
                 command = try commandBuilder.arrayAccountingCommand(arrayJobIds: parentIDBatch)
@@ -380,7 +401,10 @@ public final class PollEngine {
                 continue
             }
 
-            let commandResult = await runLogged(command: command)
+            let commandResult = await runLogged(
+                command: command,
+                maxOutputBytes: maxAccountingOutputBytes
+            )
             switch commandResult {
             case .failure(let error):
                 accountingSucceeded = false
@@ -400,7 +424,7 @@ public final class PollEngine {
             case .success(let result, let auditId):
                 let history: [JobHistorySnapshot]
                 do {
-                    history = try jsonParser.parseJobHistory(result.stdout, profileId: profile.id)
+                    history = try sacctParser.parseJobHistory(result.stdout, profileId: profile.id)
                     try database.saveHistory(history, profileId: profile.id)
                 } catch {
                     accountingSucceeded = false
@@ -561,17 +585,34 @@ public final class PollEngine {
     }
 
     private func shouldProbeAccounting(cachedAvailable: Bool) -> Bool {
-        if cachedAvailable { return true }
-
         stateLock.lock()
         defer { stateLock.unlock() }
+
         let now = Date()
+        guard now >= nextAccountingAttemptAt else { return false }
+        if cachedAvailable { return true }
+
         if let lastProbe = lastUnavailableAccountingProbeAt,
            now.timeIntervalSince(lastProbe) < unavailableAccountingRetryInterval {
             return false
         }
         lastUnavailableAccountingProbeAt = now
         return true
+    }
+
+    private func recordAccountingSuccess() {
+        stateLock.lock()
+        accountingFailures = 0
+        nextAccountingAttemptAt = .distantPast
+        stateLock.unlock()
+    }
+
+    private func recordAccountingFailure() {
+        stateLock.lock()
+        accountingFailures = min(8, accountingFailures + 1)
+        let delay = min(15 * 60.0, 30.0 * pow(2.0, Double(accountingFailures - 1)))
+        nextAccountingAttemptAt = Date().addingTimeInterval(delay)
+        stateLock.unlock()
     }
 
     private func beginEstimatedStartFetch(jobId: String) -> Bool {
